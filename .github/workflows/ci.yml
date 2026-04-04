@@ -167,7 +167,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: 安装依赖
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
