@@ -22,6 +22,34 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('💥 未处理 Promise:', e.reason);
 });
 
+// 右键菜单 - 支持调试工具
+document.addEventListener('contextmenu', (e) => {
+  // 在编辑器区域右键时显示提示
+  if (e.target.closest('.vditor') || e.target.closest('#vditor')) {
+    console.log('🔧 右键菜单：可以使用 Ctrl+Shift+I 或 F12 打开开发者工具');
+    // 不阻止默认右键菜单，让用户可以使用浏览器原生菜单
+  }
+});
+
+// 键盘快捷键 - 打开开发者工具
+document.addEventListener('keydown', (e) => {
+  // F12 打开开发者工具
+  if (e.key === 'F12') {
+    console.log('🔧 打开开发者工具...');
+    // F12 默认会打开开发者工具，不需要额外处理
+  }
+  
+  // Ctrl+Shift+I 打开开发者工具
+  if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+    console.log('🔧 打开开发者工具...');
+  }
+  
+  // Ctrl+Shift+J 打开开发者工具（Console 面板）
+  if (e.ctrlKey && e.shiftKey && e.key === 'J') {
+    console.log('🔧 打开开发者工具（Console）...');
+  }
+});
+
 // 初始化函数
 function initializeApp() {
   // 防止重复初始化
