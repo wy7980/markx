@@ -282,12 +282,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-     files: |
-            artifacts/markx-msi/*.msi
-            artifacts/markx-nsis/*.exe
-            artifacts/markx-portable/*.zip
-            artifacts/markx-macos-dmg/*.dmg
-            artifacts/markx-macos-app/*.app
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
