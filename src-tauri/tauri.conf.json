@@ -30,7 +30,7 @@
     },
     "bundle": {
       "active": true,
-      "targets": ["msi", "nsis"],
+      "targets": ["msi", "nsis", "dmg", "app"],
       "identifier": "com.markedit.app",
       "icon": [
         "icons/32x32.png",
@@ -43,6 +43,13 @@
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
         "timestampUrl": ""
+      },
+      "macOS": {
+        "frameworks": [],
+        "minimumSystemVersion": "12.0",
+        "exceptionDomain": "",
+        "signingIdentity": null,
+        "entitlements": null
       }
     },
     "security": {
