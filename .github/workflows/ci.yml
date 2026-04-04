@@ -148,7 +148,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
+          cache: 'npm'
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -167,7 +167,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
