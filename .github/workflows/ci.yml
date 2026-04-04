@@ -71,14 +71,6 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 生成默认图标
-        run: |
-          # 创建简单的占位图标（如果没有自定义图标）
-          if [ ! -f src-tauri/icons/icon.ico ]; then
-            npx @tauri-apps/cli icon
-          fi
-        shell: bash
-
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
