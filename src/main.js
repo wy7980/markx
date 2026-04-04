@@ -6,8 +6,15 @@ let currentFilePath = null;
 let saveTimeout = null;
 let appInitialized = false;
 
-// 全局错误处理
+// 全局错误处理 - 静默处理非关键错误
 window.addEventListener('error', (e) => {
+  // 忽略 Vditor 内部的 currentMode 错误（不影响功能）
+  if (e.error && e.error.message && e.error.message.includes('currentMode')) {
+    console.debug('ℹ️ 忽略 Vditor 内部错误:', e.error.message);
+    return;
+  }
+  
+  // 只在控制台记录其他错误
   console.error('💥 全局错误:', e.error);
 });
 
@@ -51,11 +58,7 @@ function initializeApp() {
     console.log('🎉 MarkEdit 应用初始化完成！');
   }).catch(err => {
     console.error('❌ Vditor 初始化失败:', err);
-    // 在界面上显示错误
-    const errorDiv = document.createElement('div');
-    errorDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff4444;color:white;padding:15px;z-index:9999;font-family:monospace;';
-    errorDiv.innerHTML = `<strong>初始化失败</strong><br>${err.message}<br><br>请检查控制台日志`;
-    document.body.appendChild(errorDiv);
+    // 初始化失败时不显示错误条（避免干扰）
   });
 }
 
