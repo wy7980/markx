@@ -21,7 +21,14 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'pnpm'
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: 启用 corepack
         run: corepack enable
@@ -173,7 +180,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: 安装依赖
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
@@ -267,6 +274,15 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
+            artifacts/markx-msi/*.msi
+            artifacts/markx-nsis/*.exe
+            artifacts/markx-portable/*.zip
+            artifacts/markx-macos-dmg/*.dmg
+            artifacts/markx-macos-app/*.app
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     files: |
             artifacts/markx-msi/*.msi
             artifacts/markx-nsis/*.exe
             artifacts/markx-portable/*.zip
