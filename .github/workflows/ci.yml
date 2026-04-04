@@ -21,10 +21,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          
 
       - name: 安装依赖
-        run: npm install --legacy-peer-deps
+        run: pnpm install --frozen-lockfile
 
       - name: 运行单元测试
         run: npm run test -- --run
@@ -150,7 +150,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -169,7 +169,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: 安装依赖
-        run: npm install --legacy-peer-deps
+        run: pnpm install --frozen-lockfile
 
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
