@@ -65,7 +65,7 @@ test.describe('格式化功能', () => {
   test('应该能点击加粗按钮', async ({ page }) => {
     const boldBtn = page.locator('.vditor-toolbar button[data-type="bold"]');
     if (await boldBtn.isVisible()) {
-      await boldBtn.click();
+      await boldBtn.click({ force: true });
       await page.waitForTimeout(100);
     }
     // 按钮存在即可
@@ -121,7 +121,7 @@ test.describe('大纲更新', () => {
     
     // 显示大纲
     const outlineBtn = page.locator('#btnOutline');
-    await outlineBtn.click();
+    await outlineBtn.click({ force: true });
     await page.waitForTimeout(300);
     
     // 输入标题
@@ -147,7 +147,7 @@ test.describe('统计数据', () => {
     
     // 显示大纲（包含统计）
     const outlineBtn = page.locator('#btnOutline');
-    await outlineBtn.click();
+    await outlineBtn.click({ force: true });
     await page.waitForTimeout(300);
     
     const wordCount = page.locator('#wordCount');

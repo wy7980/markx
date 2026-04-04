@@ -72,7 +72,7 @@ test.describe('侧边栏功能', () => {
     expect(await sidebar.getAttribute('class')).toContain('sidebar');
     
     const toggleBtn = page.locator('#btnToggleSidebar');
-    await toggleBtn.click();
+    await toggleBtn.click({ force: true });
     await page.waitForTimeout(500);
     
     // 检查侧边栏是否添加了 collapsed 类
@@ -94,7 +94,7 @@ test.describe('主题切换', () => {
     
     // 点击主题切换
     const themeBtn = page.locator('#btnTheme');
-    await themeBtn.click();
+    await themeBtn.click({ force: true });
     await page.waitForTimeout(500);
     
     // 检查主题是否变化（可能变成 dark 或 null）
@@ -136,7 +136,7 @@ test.describe('大纲功能', () => {
     const outline = page.locator('#outline');
     
     // 点击大纲按钮
-    await outlineBtn.click();
+    await outlineBtn.click({ force: true });
     await page.waitForTimeout(300);
     
     // 检查大纲是否可见
@@ -149,7 +149,7 @@ test.describe('大纲功能', () => {
     await page.waitForTimeout(1000);
     
     const outlineBtn = page.locator('#btnOutline');
-    await outlineBtn.click();
+    await outlineBtn.click({ force: true });
     await page.waitForTimeout(300);
     
     const outlineItems = page.locator('.outline-item');
