@@ -72,42 +72,118 @@ push/tag → test (Ubuntu) → build-windows (Windows) → build-macos (macOS-14
 }
 ```
 
-## 🔐 代码签名（可选）
+## ⚠️ "文件损坏"问题解决方案
 
-如需在 Mac App Store 分发或避免"无法打开"警告，需要代码签名：
+### 问题原因
+macOS Gatekeeper 安全机制阻止未签名应用运行。
+
+### 临时解决方案（用户侧）
+
+**方法 1：右键打开**
+1. 在 Finder 中找到 `MarkEdit.app`
+2. **右键点击** → **打开**
+3. 在警告对话框中点击 **"仍要打开"**
+
+**方法 2：终端命令**
+```bash
+# 移除隔离属性
+xattr -cr /Applications/MarkEdit.app
+
+# 或者
+xattr -d com.apple.quarantine /Applications/MarkEdit.app
+```
+
+**方法 3：系统设置**
+1. 打开 **系统设置** → **隐私与安全性**
+2. 滚动到 **"安全性"** 部分
+3. 点击 **"仍要打开"**
+
+---
+
+## 🔐 代码签名 + 公证（推荐方案）
+
+**彻底解决"文件损坏"警告**，需要 Apple Developer 账号：
 
 ### 1. 获取 Apple Developer 账号
-- 年费：$99 USD
-- 网址：https://developer.apple.com
+- **年费**：$99 USD
+- **网址**：https://developer.apple.com
+- **时间**：审核约 1-2 天
 
 ### 2. 创建证书
-```bash
-# 在 Keychain Access 中创建 Certificate Authority
-# 然后创建 Distribution Certificate
-```
+
+**在 Apple Developer 后台**：
+1. 访问 https://developer.apple.com/account/resources/certificates
+2. 点击 **"+"** 创建证书
+3. 选择 **"Developer ID Application"**
+4. 下载证书并双击安装到 Keychain
 
 ### 3. 导出 .p12 文件
+
+**在 Keychain Access 中**：
+1. 找到 `Developer ID Application: Your Name`
+2. **右键** → **导出**
+3. 保存为 `.p12` 文件
+4. 设置密码（记住这个密码）
+
+### 4. 获取 Team ID
+
+**在 Apple Developer 后台**：
+1. 访问 https://developer.apple.com/account/#/overview
+2. 复制 **Team ID**（10 位字母数字）
+
+### 5. 创建 App-Specific Password
+
+**在 Apple ID 后台**：
+1. 访问 https://appleid.apple.com
+2. **Sign-In and Security** → **App-Specific Passwords**
+3. 生成新密码（用于公证）
+
+### 6. 配置 GitHub Secrets
+
+| Secret 名称 | 说明 | 获取方式 |
+|------------|------|---------|
+| `APPLE_CERTIFICATE` | .p12 文件 base64 编码 | `base64 -i cert.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | .p12 密码 | 导出时设置的密码 |
+| `APPLE_SIGNING_IDENTITY` | 签名身份 | Keychain 中证书完整名称 |
+| `APPLE_TEAM_ID` | Team ID | Apple Developer 后台 |
+| `APPLE_ID` | Apple ID 邮箱 | 登录 Apple 的邮箱 |
+| `APPLE_PASSWORD` | App-Specific Password | Apple ID 后台生成 |
+
+**示例**：
 ```bash
-# 在 Keychain Access 中导出证书为 .p12
+# 编码证书
+base64 -i Developer_ID_Application.p12 | pbcopy
+
+# 查看签名身份
+security find-identity -v -p codesigning
 ```
 
-### 4. 配置 GitHub Secrets
+### 7. 验证配置
 
-| Secret 名称 | 说明 | 示例 |
-|------------|------|------|
-| `APPLE_CERTIFICATE` | .p12 文件 base64 编码 | `MIIG...` |
-| `APPLE_CERTIFICATE_PASSWORD` | .p12 密码 | `your-password` |
-| `APPLE_SIGNING_IDENTITY` | 签名身份 | `Developer ID Application: Your Name (TEAM_ID)` |
-| `APPLE_TEAM_ID` | Team ID | `XXXXXXXXXX` |
+推送代码后，CI 会自动：
+1. ✅ **导入证书**到临时钥匙串
+2. ✅ **代码签名**应用和 DMG
+3. ✅ **提交公证**到 Apple 服务器
+4. ✅ **附加公证票据**到 DMG
 
-### 5. 更新 CI 配置
-```yaml
-env:
-  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-```
+### 8. 费用说明
+
+| 项目 | 费用 | 必需性 |
+|------|------|--------|
+| Apple Developer 账号 | $99/年 | 签名必需 |
+| 公证 | 免费 | 包含在账号中 |
+
+---
+
+## 📊 签名 vs 无签名对比
+
+| 特性 | 无签名 | 已签名 + 公证 |
+|------|--------|--------------|
+| 下载后打开 | ⚠️ 警告"文件损坏" | ✅ 直接打开 |
+| 用户信任度 | 低 | 高 |
+| 分发难度 | 需指导用户绕过 | 无障碍 |
+| 成本 | 免费 | $99/年 |
+| 推荐场景 | 内部测试 | 公开发布 |
 
 ## 📊 构建时间估算
 
