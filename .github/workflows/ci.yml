@@ -161,6 +161,13 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: 生成 Cargo.lock
+        run: |
+          cd src-tauri
+          if [ ! -f "Cargo.lock" ]; then
+            cargo generate-lockfile
+          fi
+
       - name: 缓存 Rust
         uses: actions/cache@v4
         with:
@@ -168,7 +175,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
