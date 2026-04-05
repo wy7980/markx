@@ -85,6 +85,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target x86_64-pc-windows-msvc
+          tauriScript: pnpm tauri
 
       - name: 上传 MSI 安装包
         uses: actions/upload-artifact@v4
@@ -216,7 +217,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         with:
-          args: --target aarch64-apple-darwin
+          args: --target aarch64-apple-darwin --bundles dmg --bundles app
+          tauriScript: pnpm tauri
 
       - name: 公证应用（如配置了 Apple ID）
         if: env.APPLE_ID != ''
