@@ -182,6 +182,9 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
+      - name: 构建前端
+        run: pnpm run build
+
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
         run: |
