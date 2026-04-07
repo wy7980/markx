@@ -35,7 +35,6 @@
     "shell": {
       "open": true
     },
-    "dialog": {},
     "fs": {
       "scope": ["$HOME/**", "$DOCUMENT/**"]
     }
