@@ -65,8 +65,7 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "center": true,
-        "devtools": true
+        "center": true
       }
     ]
   }
