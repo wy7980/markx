@@ -402,10 +402,10 @@ function setupEventListeners() {
   
   document.getElementById('btnOpen').addEventListener('click', async () => {
     console.log('📁 打开文件');
-    if (window.__TAURI__) {
+    if (window.__TAURI_INTERNALS__) {
       try {
-        const { open } = window.__TAURI__.dialog;
-        const { readTextFile } = window.__TAURI__.fs;
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const { readTextFile } = await import('@tauri-apps/plugin-fs');
         const path = await open({ filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }] });
         if (path) {
           const content = await readTextFile(path);
@@ -427,9 +427,9 @@ function setupEventListeners() {
   
   document.getElementById('btnSave').addEventListener('click', async () => {
     console.log('💾 保存');
-    if (window.__TAURI__ && currentFilePath) {
+    if (window.__TAURI_INTERNALS__ && currentFilePath) {
       try {
-        const { writeTextFile } = window.__TAURI__.fs;
+        const { writeTextFile } = await import('@tauri-apps/plugin-fs');
         if (editorInstance) await writeTextFile(currentFilePath, editorInstance.getValue());
         updateStatus('文件已保存');
       } catch (err) { console.error('❌', err); }
@@ -441,10 +441,10 @@ function setupEventListeners() {
   
   document.getElementById('btnExport').addEventListener('click', async () => {
     console.log('📤 导出');
-    if (window.__TAURI__) {
+    if (window.__TAURI_INTERNALS__) {
       try {
-        const { save } = window.__TAURI__.dialog;
-        const { writeTextFile } = window.__TAURI__.fs;
+        const { save } = await import('@tauri-apps/plugin-dialog');
+        const { writeTextFile } = await import('@tauri-apps/plugin-fs');
         const path = await save({ filters: [{ name: 'Markdown', extensions: ['md'] }] });
         if (path && editorInstance) {
           await writeTextFile(path, editorInstance.getValue());
