@@ -168,17 +168,49 @@ function loadCurrentFile() {
   const file = files.find(f => f.id === currentFileId);
   if (file && editorInstance) {
     editorInstance.setValue(file.content || '');
+    currentFilePath = file.path || null;
+    updateStatusBar();
     updateOutline();
     updateStats();
+  }
+}
+
+function updateStatusBar() {
+  const filePathEl = document.getElementById('filePath');
+  if (filePathEl) {
+    filePathEl.textContent = currentFilePath || '本地存储';
   }
 }
 
 function switchFile(id) {
   saveCurrentFile();
   currentFileId = id;
-  currentFilePath = null;
   loadCurrentFile();
   renderFileList();
+}
+
+function openExternalFile(name, content, path = null) {
+  let existing = files.find(f => (path && f.path === path) || (!path && f.name === name));
+  if (existing) {
+    existing.content = content;
+    existing.updatedAt = new Date().toISOString();
+    currentFileId = existing.id;
+  } else {
+    const file = {
+      id: Date.now().toString(),
+      name: name,
+      content: content,
+      path: path,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    files.unshift(file);
+    currentFileId = file.id;
+  }
+  saveFiles();
+  loadCurrentFile();
+  renderFileList();
+  updateStatus('文件已打开');
 }
 
 function deleteFile(id, e) {
@@ -377,10 +409,8 @@ function setupEventListeners() {
         const path = await open({ filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }] });
         if (path) {
           const content = await readTextFile(path);
-          if (editorInstance) editorInstance.setValue(content);
-          currentFilePath = path;
-          document.getElementById('filePath').textContent = path;
-          updateStatus('文件已打开');
+          const name = path.split(/[\\/]/).pop();
+          openExternalFile(name, content, path);
         }
       } catch (err) { console.error('❌', err); }
     } else {
@@ -389,9 +419,7 @@ function setupEventListeners() {
       input.onchange = async (e) => {
         const file = e.target.files[0];
         const text = await file.text();
-        if (editorInstance) editorInstance.setValue(text);
-        document.getElementById('filePath').textContent = file.name;
-        updateStatus('文件已打开');
+        openExternalFile(file.name, text);
       };
       input.click();
     }
