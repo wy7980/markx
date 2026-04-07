@@ -4,9 +4,9 @@
   "identifier": "com.markedit.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devPath": "http://localhost:5173",
+    "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "pnpm build",
-    "distDir": "../dist"
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
