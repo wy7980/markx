@@ -66,7 +66,7 @@
         "fullscreen": false,
         "decorations": true,
         "center": true,
-        "devtools": true  // 启用开发者工具
+        "devtools": true
       }
     ]
   }
