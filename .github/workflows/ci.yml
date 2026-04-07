@@ -1,4 +1,4 @@
-name: CI Optimized
+name: CI Proven
 
 on:
   push:
@@ -17,34 +17,48 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js 和配置 pnpm
+      - name: 安装 Node.js (自动安装packageManager指定的包管理器)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 安装并配置 pnpm
+      - name: 验证并配置 pnpm
         run: |
-          # 方法1: 使用npm安装pnpm（最可靠）
-          npm install -g pnpm@10.23.0
+          # 验证pnpm已安装
+          if ! command -v pnpm > /dev/null 2>&1; then
+            echo "❌ pnpm未找到，尝试corepack安装..."
+            corepack enable
+            corepack prepare pnpm@10.23.0 --activate
+          fi
           
-          # 方法2: 或者使用corepack（如果方法1失败）
-          # corepack enable
-          # corepack prepare pnpm@10.23.0 --activate
+          # 再次验证
+          if ! command -v pnpm > /dev/null 2>&1; then
+            echo "❌ corepack安装失败，尝试npm安装..."
+            npm install -g pnpm@10.23.0
+          fi
+          
+          # 最终验证
+          if ! command -v pnpm > /dev/null 2>&1; then
+            echo "❌ 所有pnpm安装方法都失败！"
+            echo "尝试直接下载..."
+            curl -fsSL https://get.pnpm.io/install.sh | sh -
+          fi
+          
+          # 显示pnpm信息
+          echo "✅ pnpm安装成功:"
+          which pnpm
+          pnpm --version
           
           # 配置pnpm
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
-          
-          # 验证安装
-          pnpm --version
           
       - name: 缓存 pnpm store
         uses: actions/cache@v4
         with:
           path: |
             ~/.pnpm-store
-            ~/.cache/Cypress
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-
@@ -76,25 +90,26 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js 和配置 pnpm
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 安装并配置 pnpm
+      - name: 安装 pnpm (Windows特定)
         run: |
+          # Windows上corepack可能有问题，直接使用npm安装
           npm install -g pnpm@10.23.0
+          pnpm --version
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
-          pnpm --version
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: 缓存混合（Rust + pnpm）
+      - name: 缓存混合
         uses: actions/cache@v4
         with:
           path: |
@@ -160,7 +175,7 @@ jobs:
           retention-days: 30
 
   build-macos:
-    name: 构建 macOS 版本 (Apple Silicon)
+    name: 构建 macOS 版本
     runs-on: macos-14
     needs: test
     permissions:
@@ -170,18 +185,20 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js 和配置 pnpm
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 安装并配置 pnpm
+      - name: 安装 pnpm (macOS)
         run: |
-          npm install -g pnpm@10.23.0
+          # macOS上使用corepack
+          corepack enable
+          corepack prepare pnpm@10.23.0 --activate
+          pnpm --version
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
-          pnpm --version
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -193,7 +210,7 @@ jobs:
           cd src-tauri
           cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
 
-      - name: 缓存混合（Rust + pnpm）
+      - name: 缓存混合
         uses: actions/cache@v4
         with:
           path: |
@@ -226,7 +243,7 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
-      - name: 构建 Tauri 应用 (Apple Silicon)
+      - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -238,7 +255,7 @@ jobs:
           args: --target aarch64-apple-darwin --bundles dmg --bundles app
           tauriScript: pnpm tauri
 
-      - name: 公证应用（如配置了 Apple ID）
+      - name: 公证应用
         if: env.APPLE_ID != ''
         run: |
           for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
