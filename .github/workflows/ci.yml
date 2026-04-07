@@ -1,4 +1,4 @@
-name: CI with npx pnpm
+name: CI Standard (based on Vite/Vue)
 
 on:
   push:
@@ -17,19 +17,25 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
+      - name: 安装 pnpm (使用官方action)
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.23.0  # 指定版本，与package.json一致
+
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'  # 启用pnpm缓存
 
-      - name: 安装依赖 (使用 npx pnpm)
-        run: npx pnpm@10.23.0 install --frozen-lockfile
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
 
       - name: 运行单元测试
-        run: npx pnpm@10.23.0 run test -- --run
+        run: pnpm run test -- --run
 
       - name: 运行测试覆盖率
-        run: npx pnpm@10.23.0 run test:coverage
+        run: pnpm run test:coverage
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
@@ -49,18 +55,35 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.23.0
+
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: 安装依赖 (使用 npx pnpm)
-        run: npx pnpm@10.23.0 install --frozen-lockfile
+          cache: 'pnpm'
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+
+      - name: 缓存混合
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
@@ -68,7 +91,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target x86_64-pc-windows-msvc
-          tauriScript: npx pnpm@10.23.0 tauri
+          tauriScript: pnpm tauri
 
       - name: 上传 MSI 安装包
         uses: actions/upload-artifact@v4
@@ -84,6 +107,34 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           retention-days: 30
 
+      - name: 创建绿色版
+        shell: bash
+        run: |
+          mkdir -p portable/MarkEdit
+          cp src-tauri/target/x86_64-pc-windows-msvc/release/markedit.exe portable/MarkEdit/
+          mkdir -p portable/MarkEdit/data
+          cat > portable/MarkEdit/README.txt << 'EOF'
+          MarkEdit - 轻量级 Markdown 编辑器
+          使用方法：
+          1. 双击 MarkEdit.exe 运行
+          2. 数据保存在 data 目录中
+          3. 可随意移动整个文件夹
+          官网：https://github.com/wy7980/markx
+          EOF
+
+      - name: 打包绿色版
+        shell: bash
+        run: |
+          cd portable
+          7z a -tzip ../markx-portable-win64.zip MarkEdit
+
+      - name: 上传绿色版
+        uses: actions/upload-artifact@v4
+        with:
+          name: markx-portable
+          path: markx-portable-win64.zip
+          retention-days: 30
+
   build-macos:
     name: 构建 macOS 版本
     runs-on: macos-14
@@ -95,13 +146,16 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.23.0
+
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: 安装依赖 (使用 npx pnpm)
-        run: npx pnpm@10.23.0 install --frozen-lockfile
+          cache: 'pnpm'
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -113,8 +167,22 @@ jobs:
           cd src-tauri
           cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
 
+      - name: 缓存混合
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
       - name: 构建前端
-        run: npx pnpm@10.23.0 run build
+        run: pnpm run build
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
@@ -122,7 +190,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target aarch64-apple-darwin --bundles dmg --bundles app
-          tauriScript: npx pnpm@10.23.0 tauri
+          tauriScript: pnpm tauri
 
       - name: 上传 DMG
         uses: actions/upload-artifact@v4
@@ -137,3 +205,36 @@ jobs:
           name: markx-macos-app
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
           retention-days: 30
+
+  release:
+    name: 发布
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 下载所有产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 显示产物
+        run: ls -R artifacts
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/markx-msi/*.msi
+            artifacts/markx-nsis/*.exe
+            artifacts/markx-portable/*.zip
+            artifacts/markx-macos-dmg/*.dmg
+            artifacts/markx-macos-app/*.app
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
