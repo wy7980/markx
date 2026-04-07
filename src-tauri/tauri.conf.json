@@ -7,8 +7,7 @@
   },
   "package": {
     "productName": "MarkEdit",
-    "version": "1.0.0",
-    "identifier": "com.markedit.app"
+    "version": "1.0.0"
   },
   "tauri": {
     "allowlist": {
