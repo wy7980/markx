@@ -37,13 +37,63 @@ document.addEventListener('keydown', (e) => {
   // F12 打开开发者工具
   if (e.key === 'F12') {
     console.log('🔧 按下 F12，尝试打开开发者工具...');
+    openDevTools();
+    e.preventDefault(); // 防止默认行为
   }
   
   // Ctrl+Shift+I 打开开发者工具
   if (e.ctrlKey && e.shiftKey && e.key === 'I') {
     console.log('🔧 按下 Ctrl+Shift+I，尝试打开开发者工具...');
+    openDevTools();
+    e.preventDefault(); // 防止默认行为
   }
 });
+
+// 打开开发者工具的函数
+async function openDevTools() {
+  console.log('🛠️ 尝试打开开发者工具...');
+  
+  // 方法1: 使用Tauri Webview API (Tauri 1.x方式)
+  if (window.__TAURI__ && window.__TAURI__.webview && window.__TAURI__.webview.openDevTools) {
+    try {
+      await window.__TAURI__.webview.openDevTools();
+      console.log('✅ 通过Tauri 1.x API打开开发者工具');
+      return;
+    } catch (error) {
+      console.log('❌ Tauri 1.x API失败:', error.message);
+    }
+  }
+  
+  // 方法2: 使用Tauri 2.0 Webview API
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      // Tauri 2.0可能使用不同的API
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const mainWindow = WebviewWindow.getByLabel('main');
+      if (mainWindow) {
+        await mainWindow.openDevTools();
+        console.log('✅ 通过Tauri 2.0 API打开开发者工具');
+        return;
+      }
+    } catch (error) {
+      console.log('❌ Tauri 2.0 API失败:', error.message);
+    }
+  }
+  
+  // 方法3: 使用浏览器的开发者工具快捷键模拟 (Web环境回退)
+  console.log('🌐 在Web环境中，使用浏览器原生开发者工具');
+  console.log('💡 提示: 可以按F12、Ctrl+Shift+I或右键菜单→检查');
+  
+  // 方法4: 尝试触发浏览器的开发者工具
+  try {
+    // 这是一个hack，尝试触发开发者工具
+    // 注意：现代浏览器出于安全考虑，不允许JavaScript直接打开开发者工具
+    debugger; // 这会在开发者工具打开时暂停执行
+    console.log('⏸️ 触发了debugger语句，如果开发者工具已打开会暂停');
+  } catch (error) {
+    console.log('⚠️ debugger语句可能被阻止');
+  }
+}
 
 // 初始化函数
 function initializeApp() {
