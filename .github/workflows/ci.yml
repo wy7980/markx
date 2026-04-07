@@ -1,4 +1,4 @@
-name: CI
+name: CI Optimized
 
 on:
   push:
@@ -21,18 +21,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
 
-      - name: 启用 corepack
-        run: corepack enable
+      - name: 启用并配置 corepack/pnpm
+        run: |
+          corepack enable
+          pnpm config set store-dir ~/.pnpm-store
+          pnpm config set ignore-scripts false
+          
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pnpm-store
+            ~/.cache/Cypress
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
       - name: 运行单元测试
-        run: npm run test -- --run
+        run: pnpm run test -- --run
 
       - name: 运行测试覆盖率
-        run: npm run test:coverage
+        run: pnpm run test:coverage
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
@@ -56,25 +70,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
 
-      - name: 启用 corepack
-        run: corepack enable
+      - name: 启用并配置 corepack/pnpm
+        run: |
+          corepack enable
+          pnpm config set store-dir ~/.pnpm-store
+          pnpm config set ignore-scripts false
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: 缓存 Rust
+      - name: 缓存混合（Rust + pnpm）
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            ~/.pnpm-store
+          key: ${{ runner.os }}-mixed-${{ hashFiles('pnpm-lock.yaml', '**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-mixed-
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
@@ -104,24 +123,15 @@ jobs:
       - name: 创建绿色版
         shell: bash
         run: |
-          # 创建绿色版目录
           mkdir -p portable/MarkEdit
-          
-          # 复制可执行文件
           cp src-tauri/target/x86_64-pc-windows-msvc/release/markedit.exe portable/MarkEdit/
-          
-          # 创建配置目录
           mkdir -p portable/MarkEdit/data
-          
-          # 创建说明文件
           cat > portable/MarkEdit/README.txt << 'EOF'
           MarkEdit - 轻量级 Markdown 编辑器
-
           使用方法：
           1. 双击 MarkEdit.exe 运行
           2. 数据保存在 data 目录中
           3. 可随意移动整个文件夹
-
           官网：https://github.com/wy7980/markx
           EOF
 
@@ -140,7 +150,7 @@ jobs:
 
   build-macos:
     name: 构建 macOS 版本 (Apple Silicon)
-    runs-on: macos-14  # Apple Silicon M1
+    runs-on: macos-14
     needs: test
     permissions:
       contents: write
@@ -153,9 +163,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
 
-      - name: 启用 corepack
-        run: corepack enable
+      - name: 启用并配置 corepack/pnpm
+        run: |
+          corepack enable
+          pnpm config set store-dir ~/.pnpm-store
+          pnpm config set ignore-scripts false
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -165,20 +179,19 @@ jobs:
       - name: 生成 Cargo.lock
         run: |
           cd src-tauri
-          if [ ! -f "Cargo.lock" ]; then
-            cargo generate-lockfile
-          fi
+          cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
 
-      - name: 缓存 Rust
+      - name: 缓存混合（Rust + pnpm）
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+            ~/.pnpm-store
+          key: ${{ runner.os }}-mixed-${{ hashFiles('pnpm-lock.yaml', 'src-tauri/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-mixed-
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
@@ -189,18 +202,13 @@ jobs:
       - name: 安装证书（如配置了签名）
         if: env.APPLE_CERTIFICATE != ''
         run: |
-          # 创建临时钥匙串
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
-          
-          # 导入证书
           echo "${APPLE_CERTIFICATE}" | base64 --decode > certificate.p12
           security import certificate.p12 -k build.keychain -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          
-          # 信任证书
           security verify-cert -c certificate.p12
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -210,10 +218,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 代码签名配置（可选）
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # 公证配置（可选）
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         with:
@@ -223,7 +229,6 @@ jobs:
       - name: 公证应用（如配置了 Apple ID）
         if: env.APPLE_ID != ''
         run: |
-          # 公证 DMG 文件
           for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
             xcrun notarytool submit "$dmg" \
               --apple-id "$APPLE_ID" \
@@ -231,8 +236,6 @@ jobs:
               --team-id "$APPLE_TEAM_ID" \
               --wait
           done
-          
-          # 附加公证票据
           for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
             xcrun stapler staple "$dmg"
           done
