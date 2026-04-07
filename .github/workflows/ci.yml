@@ -17,17 +17,27 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js
+      - name: 安装 Node.js 和配置 pnpm
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 启用并配置 corepack/pnpm
+      - name: 安装并配置 pnpm
         run: |
-          corepack enable
+          # 方法1: 使用npm安装pnpm（最可靠）
+          npm install -g pnpm@10.23.0
+          
+          # 方法2: 或者使用corepack（如果方法1失败）
+          # corepack enable
+          # corepack prepare pnpm@10.23.0 --activate
+          
+          # 配置pnpm
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
+          
+          # 验证安装
+          pnpm --version
           
       - name: 缓存 pnpm store
         uses: actions/cache@v4
@@ -66,17 +76,18 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js
+      - name: 安装 Node.js 和配置 pnpm
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 启用并配置 corepack/pnpm
+      - name: 安装并配置 pnpm
         run: |
-          corepack enable
+          npm install -g pnpm@10.23.0
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
+          pnpm --version
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -159,17 +170,18 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js
+      - name: 安装 Node.js 和配置 pnpm
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'pnpm'
 
-      - name: 启用并配置 corepack/pnpm
+      - name: 安装并配置 pnpm
         run: |
-          corepack enable
+          npm install -g pnpm@10.23.0
           pnpm config set store-dir ~/.pnpm-store
           pnpm config set ignore-scripts false
+          pnpm --version
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
