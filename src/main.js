@@ -1,5 +1,6 @@
 // State
-let vditor = null;
+let editorInstance = null;
+window.vInstance = null; // Debugging
 let files = [];
 let currentFileId = null;
 let currentFilePath = null;
@@ -25,7 +26,7 @@ window.addEventListener('unhandledrejection', (e) => {
 // 右键菜单 - 支持调试工具
 document.addEventListener('contextmenu', (e) => {
   // 在编辑器区域右键时显示提示
-  if (e.target.closest('.vditor') || e.target.closest('#vditor')) {
+  if (e.target.closest('.vditor') || e.target.closest('#vditor-container')) {
     console.log('🔧 右键菜单：可以使用 Ctrl+Shift+I 或 F12 打开开发者工具');
     // 不阻止默认右键菜单，让用户可以使用浏览器原生菜单
   }
@@ -36,45 +37,23 @@ document.addEventListener('keydown', (e) => {
   // F12 打开开发者工具
   if (e.key === 'F12') {
     console.log('🔧 按下 F12，尝试打开开发者工具...');
-    
-    // 如果是Tauri环境，可能需要特殊处理
-    if (window.__TAURI__) {
-      console.log('📱 检测到Tauri环境，F12可能需要额外配置才能工作');
-      console.log('💡 尝试使用右键菜单 → 检查，或 Ctrl+Shift+I');
-    }
   }
   
   // Ctrl+Shift+I 打开开发者工具
   if (e.ctrlKey && e.shiftKey && e.key === 'I') {
     console.log('🔧 按下 Ctrl+Shift+I，尝试打开开发者工具...');
   }
-  
-  // Ctrl+Shift+J 打开开发者工具（Console 面板）
-  if (e.ctrlKey && e.shiftKey && e.key === 'J') {
-    console.log('🔧 按下 Ctrl+Shift+J，尝试打开开发者工具（Console）...');
-  }
-  
-  // 添加右键菜单提示
-  if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-    console.log('💡 提示：也可以在应用内右键点击，选择"检查"打开开发者工具');
-  }
 });
 
 // 初始化函数
 function initializeApp() {
-  // 防止重复初始化
-  if (appInitialized) {
-    console.log('⚠️ 应用已初始化，跳过');
-    return;
-  }
+  if (appInitialized) return;
   appInitialized = true;
   
   console.log('🚀 开始初始化 MarkEdit 应用...');
-  console.log('DOM 状态:', document.readyState);
-  console.log('Tauri 可用:', !!window.__TAURI__);
   
   // 检查关键元素
-  const requiredIds = ['btnNew', 'btnOpen', 'btnSave', 'btnExport', 'btnToggleSidebar', 'btnOutline', 'btnTheme', 'selectMode', 'vditor', 'fileList', 'outlineList', 'wordCount', 'paraCount', 'statusText'];
+  const requiredIds = ['btnNew', 'btnOpen', 'btnSave', 'btnExport', 'btnToggleSidebar', 'btnOutline', 'btnTheme', 'selectMode', 'vditor-container', 'fileList', 'outlineList', 'wordCount', 'paraCount', 'statusText'];
   const missing = requiredIds.filter(id => !document.getElementById(id));
   
   if (missing.length > 0) {
@@ -82,118 +61,66 @@ function initializeApp() {
     return;
   }
   
-  console.log('✓ 所有必需元素已找到');
-  
   // 初始化
   initVditor().then(() => {
     console.log('✓ Vditor 初始化完成');
     loadFiles();
-    console.log('✓ 文件列表已加载');
     loadTheme();
-    console.log('✓ 主题已加载');
     setupEventListeners();
-    console.log('✓ 事件监听器已绑定');
     console.log('🎉 MarkEdit 应用初始化完成！');
   }).catch(err => {
     console.error('❌ Vditor 初始化失败:', err);
-    // 初始化失败时不显示错误条（避免干扰）
   });
 }
 
-// 多种初始化方式确保可靠触发
+// 自动初始化
 if (document.readyState === 'loading') {
-  console.log('📋 DOM 加载中，等待 DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
-  console.log('📋 DOM 已就绪，立即初始化');
   initializeApp();
 }
 
-// Tauri 备用初始化
-if (window.__TAURI__ && window.__TAURI__.event) {
-  window.__TAURI__.event.listen('tauri://ready', () => {
-    console.log('📋 Tauri 就绪事件触发');
-    if (!appInitialized) {
-      initializeApp();
-    }
-  });
-}
-
 // Vditor Editor
-async function initVditor() {
-  vditor = new Vditor('vditor', {
-    height: '100%',
-    mode: 'wysiwyg',
-    theme: 'classic',
-    icon: 'material',
-    cache: {
-      enable: true,
-      id: 'markedit-cache'
-    },
-    value: `# 欢迎使用 MarkEdit
+function initVditor() {
+  return new Promise((resolve) => {
+    editorInstance = new Vditor('vditor-container', {
+      height: '100%',
+      mode: 'wysiwyg',
+      theme: 'classic',
+      icon: 'material',
+      cache: {
+        enable: true,
+        id: 'markedit-cache'
+      },
+      value: `# 欢迎使用 MarkEdit
 
 这是一个**轻量级**、*所见即所得*的 Markdown 编辑器。
-
-## 功能特点
-
-- 实时渲染 Markdown 语法
-- 支持三种编辑模式：所见即所得、即时渲染、分屏预览
-- 本地自动保存
-- 暗色/亮色主题切换
-- 文件大纲导航
-
-## 快捷键
-
-\`Ctrl+B\` 粗体 · \`Ctrl+I\` 斜体 · \`Ctrl+S\` 保存
-
-> 写作是思考的最佳方式。—— Joan Didion
-
----
-
-开始你的创作吧！ ✨
 `,
-    toolbar: [
-      'headings',
-      'bold',
-      'italic',
-      'strike',
-      '|',
-      'line',
-      'quote',
-      'list',
-      'ordered-list',
-      'check',
-      '|',
-      'code',
-      'inline-code',
-      '|',
-      'link',
-      'table',
-      '|',
-      'undo',
-      'redo',
-      '|',
-      'edit-mode',
-      {
-        name: 'more',
-        toolbar: [
-          'both',
-          'preview',
-          'outline',
-          'export',
-          'devtools'
-        ]
+      toolbar: [
+        'headings', 'bold', 'italic', 'strike', '|',
+        'line', 'quote', 'list', 'ordered-list', 'check', '|',
+        'code', 'inline-code', '|',
+        'link', 'table', '|',
+        'undo', 'redo', '|',
+        'edit-mode',
+        {
+          name: 'more',
+          toolbar: ['both', 'preview', 'outline', 'export', 'devtools']
+        }
+      ],
+      input: (value) => {
+        updateOutline();
+        updateStats();
+        autoSave();
+      },
+      after: () => {
+        updateOutline();
+        updateStats();
+        window.vInstance = editorInstance;
+        console.log('Vditor ready, instance methods:', Object.keys(editorInstance).filter(k => typeof editorInstance[k] === 'function'));
+        resolve();
       }
-    ],
-    input: (value) => {
-      updateOutline();
-      updateStats();
-      autoSave();
-    },
-    after: () => {
-      updateOutline();
-      updateStats();
-    }
+    });
   });
 }
 
@@ -210,7 +137,6 @@ function loadFiles() {
     currentFileId = files[0].id;
     loadCurrentFile();
   }
-  
   renderFileList();
 }
 
@@ -232,17 +158,16 @@ function createNewFile() {
   saveFiles();
   renderFileList();
   
-  if (vditor) {
-    vditor.setValue('');
+  if (editorInstance) {
+    editorInstance.setValue('');
   }
-  
   updateStatus('新文档已创建');
 }
 
 function loadCurrentFile() {
   const file = files.find(f => f.id === currentFileId);
-  if (file && vditor) {
-    vditor.setValue(file.content || '');
+  if (file && editorInstance) {
+    editorInstance.setValue(file.content || '');
     updateOutline();
     updateStats();
   }
@@ -258,6 +183,7 @@ function switchFile(id) {
 
 function deleteFile(id, e) {
   e.stopPropagation();
+  console.log('🗑️ 尝试删除文件 ID:', id);
   if (files.length === 1) {
     alert('至少保留一个文档');
     return;
@@ -276,13 +202,12 @@ function deleteFile(id, e) {
 
 function saveCurrentFile() {
   const file = files.find(f => f.id === currentFileId);
-  if (file && vditor) {
-    file.content = vditor.getValue();
+  if (file && editorInstance) {
+    file.content = editorInstance.getValue();
     file.updatedAt = new Date().toISOString();
     
     // Update name from first heading
-    const content = file.content;
-    const match = content.match(/^#\s+(.+)$/m);
+    const match = file.content.match(/^#\s+(.+)$/m);
     if (match) {
       file.name = match[1].slice(0, 20) || '未命名';
     }
@@ -310,7 +235,6 @@ function renderFileList() {
     </div>
   `).join('');
   
-  // Add click handlers
   list.querySelectorAll('.file-item').forEach(item => {
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('delete-btn')) {
@@ -324,13 +248,10 @@ function renderFileList() {
   });
 }
 
-// Outline
 function updateOutline() {
-  if (!vditor) return;
-  
-  const content = vditor.getValue();
+  if (!editorInstance) return;
+  const content = editorInstance.getValue();
   const headings = content.match(/^#{1,6}\s+.+$/gm) || [];
-  
   const icons = { h1: '📌', h2: '📎', h3: '📍', h4: '🔹' };
   
   const list = document.getElementById('outlineList');
@@ -338,51 +259,39 @@ function updateOutline() {
     const level = (h.match(/^#+/) || [''])[0].length;
     const text = h.replace(/^#+\s+/, '');
     const tag = `h${Math.min(level, 4)}`;
-    const icon = icons[tag] || '•';
-    
     return `<div class="outline-item ${tag}" data-text="${text}">
-      <span class="icon">${icon}</span>
+      <span class="icon">${icons[tag] || '•'}</span>
       ${text}
     </div>`;
   }).join('');
   
-  // Add click handlers
   list.querySelectorAll('.outline-item').forEach(item => {
     item.addEventListener('click', () => {
       const text = item.dataset.text;
-      const content = vditor.getValue();
+      const content = editorInstance.getValue();
       const lines = content.split('\n');
-      
       for (let i = 0; i < lines.length; i++) {
         if (lines[i].includes(text)) {
-          // Scroll to line (approximate)
-          vditor.focus();
+          editorInstance.focus();
           break;
         }
       }
-      
-      // Highlight active
       list.querySelectorAll('.outline-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
     });
   });
 }
 
-// Stats
 function updateStats() {
-  if (!vditor) return;
-  
-  const content = vditor.getValue();
+  if (!editorInstance) return;
+  const content = editorInstance.getValue();
   const text = content.replace(/[#*`\[\]()>-]/g, '').replace(/\s/g, '');
-  const wordCount = text.length;
-  
   const paragraphs = content.split(/\n\n+/).filter(p => p.trim()).length;
   
-  document.getElementById('wordCount').textContent = wordCount;
+  document.getElementById('wordCount').textContent = text.length;
   document.getElementById('paraCount').textContent = paragraphs;
 }
 
-// Theme
 function loadTheme() {
   const theme = localStorage.getItem('markedit-theme') || 'light';
   setTheme(theme);
@@ -392,11 +301,9 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   document.getElementById('sunIcon').style.display = theme === 'dark' ? 'none' : 'block';
   document.getElementById('moonIcon').style.display = theme === 'dark' ? 'block' : 'none';
-  
-  if (vditor) {
-    vditor.setTheme(theme === 'dark' ? 'dark' : 'classic');
+  if (editorInstance) {
+    editorInstance.setTheme(theme === 'dark' ? 'dark' : 'classic');
   }
-  
   localStorage.setItem('markedit-theme', theme);
 }
 
@@ -405,7 +312,6 @@ function toggleTheme() {
   setTheme(current === 'dark' ? 'light' : 'dark');
 }
 
-// Status
 function updateStatus(msg) {
   document.getElementById('statusText').textContent = msg;
   setTimeout(() => {
@@ -413,178 +319,127 @@ function updateStatus(msg) {
   }, 2000);
 }
 
-// Event Listeners
 function setupEventListeners() {
-  console.log('🔧 开始绑定事件监听器...');
+  console.log('🔧 绑定事件监听器...');
   
-  // New file
-  const btnNew = document.getElementById('btnNew');
-  if (btnNew) {
-    btnNew.addEventListener('click', createNewFile);
-    console.log('✓ btnNew 事件已绑定');
-  } else {
-    console.error('✗ btnNew 元素未找到');
-  }
+  document.getElementById('btnNew').addEventListener('click', createNewFile);
   
-  // Toggle sidebar
-  const btnToggle = document.getElementById('btnToggleSidebar');
-  if (btnToggle) {
-    btnToggle.addEventListener('click', () => {
-      console.log('📂 切换侧边栏');
-      document.getElementById('sidebar').classList.toggle('collapsed');
-    });
-    console.log('✓ btnToggleSidebar 事件已绑定');
-  }
+  document.getElementById('btnToggleSidebar').addEventListener('click', () => {
+    console.log('📂 切换侧边栏');
+    document.getElementById('sidebar').classList.toggle('collapsed');
+  });
   
-  // Toggle outline
-  const btnOutline = document.getElementById('btnOutline');
-  if (btnOutline) {
-    btnOutline.addEventListener('click', () => {
-      console.log('📑 切换大纲');
-      const outline = document.getElementById('outline');
-      const btn = document.getElementById('btnOutline');
-      outline.classList.toggle('collapsed');
-      btn.classList.toggle('active');
-    });
-    console.log('✓ btnOutline 事件已绑定');
-  }
+  document.getElementById('btnOutline').addEventListener('click', () => {
+    console.log('📑 切换大纲');
+    document.getElementById('outline').classList.toggle('collapsed');
+    document.getElementById('btnOutline').classList.toggle('active');
+  });
   
-  // Theme
-  const btnTheme = document.getElementById('btnTheme');
-  if (btnTheme) {
-    btnTheme.addEventListener('click', toggleTheme);
-    console.log('✓ btnTheme 事件已绑定');
-  }
+  document.getElementById('btnCollapseAll').addEventListener('click', () => {
+    console.log('📐 折叠/展开所有大纲');
+    document.getElementById('outlineList').classList.toggle('all-collapsed');
+  });
   
-  // Edit mode
+  document.getElementById('btnTheme').addEventListener('click', toggleTheme);
+  
   const selectMode = document.getElementById('selectMode');
   if (selectMode) {
     selectMode.addEventListener('change', (e) => {
-      console.log('🔄 切换编辑模式:', e.target.value);
-      if (vditor) {
-        vditor.changeMode(e.target.value);
+      const mode = e.target.value;
+      console.log('🔄 切换编辑模式:', mode);
+      
+      if (editorInstance) {
+        // Method 1: Try setMode (Standard/Legacy API)
+        if (typeof editorInstance.setMode === 'function') {
+          editorInstance.setMode(mode);
+        } else {
+          // Method 2: Keyboard shortcut fallback (Reliable for Vditor 3.x)
+          const modeMap = { 'wysiwyg': '7', 'ir': '8', 'sv': '9' };
+          const key = modeMap[mode];
+          if (key) {
+            console.log(`⌨️ 使用快捷键 Alt+Ctrl+${key} 切换至 ${mode}`);
+            window.dispatchEvent(new KeyboardEvent('keydown', { 
+              key: key, ctrlKey: true, altKey: true, bubbles: true 
+            }));
+          }
+        }
       }
     });
     console.log('✓ selectMode 事件已绑定');
   }
   
-  // Open file (Tauri)
-  const btnOpen = document.getElementById('btnOpen');
-  if (btnOpen) {
-    btnOpen.addEventListener('click', async () => {
-      console.log('📁 打开文件按钮被点击');
-      if (window.__TAURI__) {
-        try {
-          const { open } = window.__TAURI__.dialog;
-          const { readTextFile } = window.__TAURI__.fs;
-          
-          const path = await open({
-            filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
-          });
-          
-          if (path) {
-            const content = await readTextFile(path);
-            vditor.setValue(content);
-            currentFilePath = path;
-            document.getElementById('filePath').textContent = path;
-            updateStatus('文件已打开');
-            console.log('✓ 文件已打开:', path);
-          }
-        } catch (err) {
-          console.error('❌ 打开文件失败:', err);
-          updateStatus('打开失败：' + err.message);
-        }
-      } else {
-        // Fallback for web
-        console.log('⚠️ Tauri 不可用，使用 Web 回退方案');
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.md,.txt';
-        input.onchange = async (e) => {
-          const file = e.target.files[0];
-          const text = await file.text();
-          vditor.setValue(text);
-          document.getElementById('filePath').textContent = file.name;
+  document.getElementById('btnOpen').addEventListener('click', async () => {
+    console.log('📁 打开文件');
+    if (window.__TAURI__) {
+      try {
+        const { open } = window.__TAURI__.dialog;
+        const { readTextFile } = window.__TAURI__.fs;
+        const path = await open({ filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }] });
+        if (path) {
+          const content = await readTextFile(path);
+          if (editorInstance) editorInstance.setValue(content);
+          currentFilePath = path;
+          document.getElementById('filePath').textContent = path;
           updateStatus('文件已打开');
-        };
-        input.click();
-      }
-    });
-    console.log('✓ btnOpen 事件已绑定');
-  }
-  
-  // Save file (Tauri)
-  const btnSave = document.getElementById('btnSave');
-  if (btnSave) {
-    btnSave.addEventListener('click', async () => {
-      console.log('💾 保存按钮被点击');
-      if (window.__TAURI__ && currentFilePath) {
-        try {
-          const { writeTextFile } = window.__TAURI__.fs;
-          await writeTextFile(currentFilePath, vditor.getValue());
-          updateStatus('文件已保存');
-          console.log('✓ 文件已保存:', currentFilePath);
-        } catch (err) {
-          console.error('❌ 保存失败:', err);
-          updateStatus('保存失败：' + err.message);
         }
-      } else {
-        saveCurrentFile();
-        updateStatus('已保存');
-        console.log('✓ 已保存到本地存储');
-      }
-    });
-    console.log('✓ btnSave 事件已绑定');
-  }
+      } catch (err) { console.error('❌', err); }
+    } else {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        const text = await file.text();
+        if (editorInstance) editorInstance.setValue(text);
+        document.getElementById('filePath').textContent = file.name;
+        updateStatus('文件已打开');
+      };
+      input.click();
+    }
+  });
   
-  // Export
-  const btnExport = document.getElementById('btnExport');
-  if (btnExport) {
-    btnExport.addEventListener('click', async () => {
-      console.log('📤 导出按钮被点击');
-      if (window.__TAURI__) {
-        try {
-          const { save } = window.__TAURI__.dialog;
-          const { writeTextFile } = window.__TAURI__.fs;
-          
-          const path = await save({
-            filters: [{ name: 'Markdown', extensions: ['md'] }]
-          });
-          
-          if (path) {
-            await writeTextFile(path, vditor.getValue());
-            updateStatus('导出成功');
-            console.log('✓ 导出成功:', path);
-          }
-        } catch (err) {
-          console.error('❌ 导出失败:', err);
-          updateStatus('导出失败：' + err.message);
+  document.getElementById('btnSave').addEventListener('click', async () => {
+    console.log('💾 保存');
+    if (window.__TAURI__ && currentFilePath) {
+      try {
+        const { writeTextFile } = window.__TAURI__.fs;
+        if (editorInstance) await writeTextFile(currentFilePath, editorInstance.getValue());
+        updateStatus('文件已保存');
+      } catch (err) { console.error('❌', err); }
+    } else {
+      saveCurrentFile();
+      updateStatus('已保存');
+    }
+  });
+  
+  document.getElementById('btnExport').addEventListener('click', async () => {
+    console.log('📤 导出');
+    if (window.__TAURI__) {
+      try {
+        const { save } = window.__TAURI__.dialog;
+        const { writeTextFile } = window.__TAURI__.fs;
+        const path = await save({ filters: [{ name: 'Markdown', extensions: ['md'] }] });
+        if (path && editorInstance) {
+          await writeTextFile(path, editorInstance.getValue());
+          updateStatus('导出成功');
         }
-      } else {
-        // Fallback: download
-        console.log('⚠️ Tauri 不可用，使用下载回退方案');
-        const blob = new Blob([vditor.getValue()], { type: 'text/markdown' });
+      } catch (err) { console.error('❌', err); }
+    } else {
+      console.log('⚠️ Web下载回退');
+      if (editorInstance) {
+        const blob = new Blob([editorInstance.getValue()], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = 'document.md';
-        a.click();
+        a.href = url; a.download = 'document.md'; a.click();
         URL.revokeObjectURL(url);
         updateStatus('导出成功');
       }
-    });
-    console.log('✓ btnExport 事件已绑定');
-  }
+    }
+  });
   
-  // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
-      console.log('⌨️ 快捷键 Ctrl+S/Cmd+S 触发');
       document.getElementById('btnSave').click();
     }
   });
-  console.log('✓ 键盘快捷键已绑定');
-  
-  console.log('🎉 所有事件监听器绑定完成！');
 }
