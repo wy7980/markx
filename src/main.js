@@ -35,18 +35,28 @@ document.addEventListener('contextmenu', (e) => {
 document.addEventListener('keydown', (e) => {
   // F12 打开开发者工具
   if (e.key === 'F12') {
-    console.log('🔧 打开开发者工具...');
-    // F12 默认会打开开发者工具，不需要额外处理
+    console.log('🔧 按下 F12，尝试打开开发者工具...');
+    
+    // 如果是Tauri环境，可能需要特殊处理
+    if (window.__TAURI__) {
+      console.log('📱 检测到Tauri环境，F12可能需要额外配置才能工作');
+      console.log('💡 尝试使用右键菜单 → 检查，或 Ctrl+Shift+I');
+    }
   }
   
   // Ctrl+Shift+I 打开开发者工具
   if (e.ctrlKey && e.shiftKey && e.key === 'I') {
-    console.log('🔧 打开开发者工具...');
+    console.log('🔧 按下 Ctrl+Shift+I，尝试打开开发者工具...');
   }
   
   // Ctrl+Shift+J 打开开发者工具（Console 面板）
   if (e.ctrlKey && e.shiftKey && e.key === 'J') {
-    console.log('🔧 打开开发者工具（Console）...');
+    console.log('🔧 按下 Ctrl+Shift+J，尝试打开开发者工具（Console）...');
+  }
+  
+  // 添加右键菜单提示
+  if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+    console.log('💡 提示：也可以在应用内右键点击，选择"检查"打开开发者工具');
   }
 });
 
