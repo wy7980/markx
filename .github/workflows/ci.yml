@@ -1,4 +1,4 @@
-name: CI Proven
+name: CI with npx pnpm
 
 on:
   push:
@@ -17,60 +17,19 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Node.js (自动安装packageManager指定的包管理器)
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - name: 验证并配置 pnpm
-        run: |
-          # 验证pnpm已安装
-          if ! command -v pnpm > /dev/null 2>&1; then
-            echo "❌ pnpm未找到，尝试corepack安装..."
-            corepack enable
-            corepack prepare pnpm@10.23.0 --activate
-          fi
-          
-          # 再次验证
-          if ! command -v pnpm > /dev/null 2>&1; then
-            echo "❌ corepack安装失败，尝试npm安装..."
-            npm install -g pnpm@10.23.0
-          fi
-          
-          # 最终验证
-          if ! command -v pnpm > /dev/null 2>&1; then
-            echo "❌ 所有pnpm安装方法都失败！"
-            echo "尝试直接下载..."
-            curl -fsSL https://get.pnpm.io/install.sh | sh -
-          fi
-          
-          # 显示pnpm信息
-          echo "✅ pnpm安装成功:"
-          which pnpm
-          pnpm --version
-          
-          # 配置pnpm
-          pnpm config set store-dir ~/.pnpm-store
-          pnpm config set ignore-scripts false
-          
-      - name: 缓存 pnpm store
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
+      - name: 安装依赖 (使用 npx pnpm)
+        run: npx pnpm@10.23.0 install --frozen-lockfile
 
       - name: 运行单元测试
-        run: pnpm run test -- --run
+        run: npx pnpm@10.23.0 run test -- --run
 
       - name: 运行测试覆盖率
-        run: pnpm run test:coverage
+        run: npx pnpm@10.23.0 run test:coverage
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
@@ -94,35 +53,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - name: 安装 pnpm (Windows特定)
-        run: |
-          # Windows上corepack可能有问题，直接使用npm安装
-          npm install -g pnpm@10.23.0
-          pnpm --version
-          pnpm config set store-dir ~/.pnpm-store
-          pnpm config set ignore-scripts false
+      - name: 安装依赖 (使用 npx pnpm)
+        run: npx pnpm@10.23.0 install --frozen-lockfile
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: 缓存混合
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-            ~/.pnpm-store
-          key: ${{ runner.os }}-mixed-${{ hashFiles('pnpm-lock.yaml', '**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mixed-
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
@@ -130,7 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target x86_64-pc-windows-msvc
-          tauriScript: pnpm tauri
+          tauriScript: npx pnpm@10.23.0 tauri
 
       - name: 上传 MSI 安装包
         uses: actions/upload-artifact@v4
@@ -144,34 +82,6 @@ jobs:
         with:
           name: markx-nsis
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          retention-days: 30
-
-      - name: 创建绿色版
-        shell: bash
-        run: |
-          mkdir -p portable/MarkEdit
-          cp src-tauri/target/x86_64-pc-windows-msvc/release/markedit.exe portable/MarkEdit/
-          mkdir -p portable/MarkEdit/data
-          cat > portable/MarkEdit/README.txt << 'EOF'
-          MarkEdit - 轻量级 Markdown 编辑器
-          使用方法：
-          1. 双击 MarkEdit.exe 运行
-          2. 数据保存在 data 目录中
-          3. 可随意移动整个文件夹
-          官网：https://github.com/wy7980/markx
-          EOF
-
-      - name: 打包绿色版
-        shell: bash
-        run: |
-          cd portable
-          7z a -tzip ../markx-portable-win64.zip MarkEdit
-
-      - name: 上传绿色版
-        uses: actions/upload-artifact@v4
-        with:
-          name: markx-portable
-          path: markx-portable-win64.zip
           retention-days: 30
 
   build-macos:
@@ -189,16 +99,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - name: 安装 pnpm (macOS)
-        run: |
-          # macOS上使用corepack
-          corepack enable
-          corepack prepare pnpm@10.23.0 --activate
-          pnpm --version
-          pnpm config set store-dir ~/.pnpm-store
-          pnpm config set ignore-scripts false
+      - name: 安装依赖 (使用 npx pnpm)
+        run: npx pnpm@10.23.0 install --frozen-lockfile
 
       - name: 安装 Rust
         uses: dtolnay/rust-toolchain@stable
@@ -210,68 +113,16 @@ jobs:
           cd src-tauri
           cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
 
-      - name: 缓存混合
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-            ~/.pnpm-store
-          key: ${{ runner.os }}-mixed-${{ hashFiles('pnpm-lock.yaml', 'src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mixed-
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
-
       - name: 构建前端
-        run: pnpm run build
-
-      - name: 安装证书（如配置了签名）
-        if: env.APPLE_CERTIFICATE != ''
-        run: |
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          echo "${APPLE_CERTIFICATE}" | base64 --decode > certificate.p12
-          security import certificate.p12 -k build.keychain -P "${APPLE_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          security verify-cert -c certificate.p12
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: npx pnpm@10.23.0 run build
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         with:
           args: --target aarch64-apple-darwin --bundles dmg --bundles app
-          tauriScript: pnpm tauri
-
-      - name: 公证应用
-        if: env.APPLE_ID != ''
-        run: |
-          for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
-            xcrun notarytool submit "$dmg" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
-          done
-          for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
-            xcrun stapler staple "$dmg"
-          done
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          tauriScript: npx pnpm@10.23.0 tauri
 
       - name: 上传 DMG
         uses: actions/upload-artifact@v4
@@ -286,36 +137,3 @@ jobs:
           name: markx-macos-app
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
           retention-days: 30
-
-  release:
-    name: 发布
-    runs-on: ubuntu-latest
-    needs: [build-windows, build-macos]
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
-    
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v5
-
-      - name: 下载所有产物
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: 显示产物
-        run: ls -R artifacts
-
-      - name: 创建 Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            artifacts/markx-msi/*.msi
-            artifacts/markx-nsis/*.exe
-            artifacts/markx-portable/*.zip
-            artifacts/markx-macos-dmg/*.dmg
-            artifacts/markx-macos-app/*.app
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
