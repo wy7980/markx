@@ -173,6 +173,14 @@ function loadFiles() {
     files = JSON.parse(saved);
   }
   
+  // 为旧数据添加路径字段（向后兼容）
+  files.forEach(file => {
+    if (!file.path) {
+      file.path = '';
+      file.dirPath = '';
+    }
+  });
+  
   if (files.length === 0) {
     createNewFile();
   } else {
@@ -237,17 +245,20 @@ function openExternalFile(name, content, path = null) {
     existing.content = content;
     existing.updatedAt = new Date().toISOString();
     currentFileId = existing.id;
+    currentFilePath = path;
   } else {
     const file = {
       id: Date.now().toString(),
       name: name,
       content: content,
       path: path,
+      dirPath: path ? getDirPath(path) : '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     files.unshift(file);
     currentFileId = file.id;
+    currentFilePath = path;
   }
   saveFiles();
   loadCurrentFile();
@@ -301,6 +312,17 @@ function autoSave() {
 
 function renderFileList() {
   const list = document.getElementById('fileList');
+  
+  // 如果当前有打开的文件且有路径，显示目录结构
+  if (currentFilePath) {
+    renderDirectoryView(list);
+  } else {
+    // 否则显示普通文件列表
+    renderSimpleFileList(list);
+  }
+}
+
+function renderSimpleFileList(list) {
   list.innerHTML = files.map(file => `
     <div class="file-item ${file.id === currentFileId ? 'active' : ''}" data-id="${file.id}">
       <span class="file-icon">📄</span>
@@ -309,7 +331,138 @@ function renderFileList() {
     </div>
   `).join('');
   
-  list.querySelectorAll('.file-item').forEach(item => {
+  setupFileListEvents(list);
+}
+
+function renderDirectoryView(list) {
+  const currentFile = files.find(f => f.id === currentFileId);
+  if (!currentFile || !currentFile.path) {
+    renderSimpleFileList(list);
+    return;
+  }
+  
+  // 获取目录路径
+  const dirPath = currentFile.path ? getDirPath(currentFile.path) : '';
+  const dirName = dirPath ? getFileName(dirPath) || '根目录' : '未指定目录';
+  
+  list.innerHTML = `
+    <div class="directory-header">
+      <span class="directory-icon">📁</span>
+      <span class="directory-title">${dirName}</span>
+      <span class="directory-path">${dirPath || '本地文件'}</span>
+    </div>
+    <div class="directory-files" id="directoryFiles">
+      <!-- 目录文件将在这里动态加载 -->
+    </div>
+    <div class="recent-files">
+      <div class="recent-title">最近文件</div>
+      ${files.slice(0, 5).map(file => `
+        <div class="file-item ${file.id === currentFileId ? 'active' : ''}" data-id="${file.id}">
+          <span class="file-icon">📄</span>
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${file.name}</span>
+          <span class="file-path">${file.path ? getFileName(getDirPath(file.path)) || '本地' : '内存'}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  
+  // 加载目录下的文件
+  loadDirectoryFiles(dirPath, document.getElementById('directoryFiles'));
+  setupFileListEvents(list);
+}
+
+function getDirPath(filePath) {
+  if (!filePath) return '';
+  // 处理不同操作系统的路径分隔符
+  const path = filePath.replace(/\\/g, '/');
+  const lastSlash = path.lastIndexOf('/');
+  return lastSlash > 0 ? path.substring(0, lastSlash) : '';
+}
+
+function getFileName(filePath) {
+  if (!filePath) return '';
+  const path = filePath.replace(/\\/g, '/');
+  const lastSlash = path.lastIndexOf('/');
+  return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+}
+
+async function loadDirectoryFiles(dirPath, container) {
+  if (!container) return;
+  
+  container.innerHTML = '<div class="loading">加载目录中...</div>';
+  
+  // 在Tauri环境中，可以读取目录
+  if (window.__TAURI_INTERNALS__ && dirPath) {
+    try {
+      const { readDir } = await import('@tauri-apps/plugin-fs');
+      const entries = await readDir(dirPath, { recursive: false });
+      
+      // 过滤出markdown和txt文件
+      const markdownFiles = entries.filter(entry => 
+        !entry.children && 
+        (entry.name.toLowerCase().endsWith('.md') || 
+         entry.name.toLowerCase().endsWith('.txt') ||
+         entry.name.toLowerCase().endsWith('.markdown'))
+      );
+      
+      if (markdownFiles.length === 0) {
+        container.innerHTML = '<div class="no-files">该目录下没有Markdown或TXT文件</div>';
+        return;
+      }
+      
+      container.innerHTML = markdownFiles.map(entry => {
+        const isCurrent = currentFilePath && currentFilePath.endsWith(`/${entry.name}`);
+        return `
+          <div class="file-item ${isCurrent ? 'active' : ''}" data-path="${dirPath}/${entry.name}">
+            <span class="file-icon">📄</span>
+            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${entry.name}</span>
+            <span class="file-size">${formatFileSize(entry.size || 0)}</span>
+          </div>
+        `;
+      }).join('');
+      
+      // 绑定点击事件
+      container.querySelectorAll('.file-item[data-path]').forEach(item => {
+        item.addEventListener('click', async () => {
+          const path = item.dataset.path;
+          await openFileFromPath(path);
+        });
+      });
+      
+    } catch (error) {
+      console.error('❌ 读取目录失败:', error);
+      container.innerHTML = '<div class="error">无法读取目录内容</div>';
+    }
+  } else {
+    // Web环境或无路径时，显示提示
+    container.innerHTML = '<div class="info">请打开本地文件以查看目录内容</div>';
+  }
+}
+
+async function openFileFromPath(filePath) {
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const content = await readTextFile(filePath);
+      const name = getFileName(filePath);
+      openExternalFile(name, content, filePath);
+    } catch (error) {
+      console.error('❌ 打开文件失败:', error);
+      updateStatus('打开文件失败');
+    }
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function setupFileListEvents(list) {
+  list.querySelectorAll('.file-item:not([data-path])').forEach(item => {
     item.addEventListener('click', (e) => {
       if (!e.target.classList.contains('delete-btn')) {
         switchFile(item.dataset.id);
