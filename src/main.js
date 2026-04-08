@@ -117,6 +117,7 @@ function initializeApp() {
     loadFiles();
     loadTheme();
     setupEventListeners();
+    initOutlineSidebar(); // 初始化浮动大纲侧边栏
     console.log('🎉 MarkEdit 应用初始化完成！');
   }).catch(err => {
     console.error('❌ Vditor 初始化失败:', err);
@@ -519,5 +520,285 @@ function setupEventListeners() {
       e.preventDefault();
       document.getElementById('btnSave').click();
     }
+    
+    // ESC键关闭大纲侧边栏
+    if (e.key === 'Escape' && outlineSidebarVisible) {
+      toggleOutlineSidebar();
+    }
   });
 }
+
+// ============================================
+// 浮动大纲侧边栏功能
+// ============================================
+
+let outlineSidebarVisible = false;
+
+/**
+ * 初始化浮动大纲侧边栏
+ */
+function initOutlineSidebar() {
+  console.log('🚀 初始化浮动大纲侧边栏...');
+  
+  // 创建侧边栏DOM
+  const sidebarHTML = `
+    <div class="outline-sidebar" id="outlineSidebar">
+      <div class="outline-sidebar-header">
+        <span class="outline-sidebar-title">📑 文档大纲</span>
+        <button class="outline-sidebar-close" id="btnCloseOutline" title="关闭大纲">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="outline-sidebar-content" id="outlineSidebarContent">
+        <!-- 大纲内容动态生成 -->
+      </div>
+    </div>
+  `;
+  
+  // 添加到页面
+  document.body.insertAdjacentHTML('beforeend', sidebarHTML);
+  
+  // 绑定事件
+  document.getElementById('btnCloseOutline').addEventListener('click', toggleOutlineSidebar);
+  
+  // 点击外部关闭侧边栏
+  document.addEventListener('click', (e) => {
+    const sidebar = document.getElementById('outlineSidebar');
+    const btnOutline = document.getElementById('btnOutline');
+    
+    if (outlineSidebarVisible && 
+        sidebar && 
+        btnOutline &&
+        !sidebar.contains(e.target) && 
+        !btnOutline.contains(e.target)) {
+      toggleOutlineSidebar();
+    }
+  });
+  
+  console.log('✅ 浮动大纲侧边栏初始化完成');
+}
+
+/**
+ * 切换大纲侧边栏显示/隐藏
+ */
+function toggleOutlineSidebar() {
+  const sidebar = document.getElementById('outlineSidebar');
+  const btnOutline = document.getElementById('btnOutline');
+  
+  if (!sidebar || !btnOutline) return;
+  
+  outlineSidebarVisible = !outlineSidebarVisible;
+  
+  if (outlineSidebarVisible) {
+    // 显示侧边栏
+    sidebar.classList.add('open');
+    btnOutline.classList.add('active');
+    
+    // 更新大纲内容
+    updateOutlineSidebar();
+    
+    console.log('📖 显示大纲侧边栏');
+  } else {
+    // 隐藏侧边栏
+    sidebar.classList.remove('open');
+    btnOutline.classList.remove('active');
+    
+    console.log('📕 隐藏大纲侧边栏');
+  }
+}
+
+/**
+ * 更新浮动侧边栏中的大纲内容
+ */
+function updateOutlineSidebar() {
+  if (!editorInstance) return;
+  
+  const content = editorInstance.getValue();
+  const headings = content.match(/^#{1,6}\s+.+$/gm) || [];
+  
+  const sidebarContent = document.getElementById('outlineSidebarContent');
+  if (!sidebarContent) return;
+  
+  const icons = { 
+    h1: '📌', h2: '📎', h3: '📍', h4: '🔹', h5: '•', h6: '◦' 
+  };
+  
+  if (headings.length === 0) {
+    sidebarContent.innerHTML = `
+      <div style="text-align: center; padding: 40px 20px; color: var(--muted);">
+        <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+        <div>暂无标题</div>
+        <div style="font-size: 12px; margin-top: 8px;">添加 # 标题来创建大纲</div>
+      </div>
+    `;
+    return;
+  }
+  
+  const itemsHTML = headings.map((heading, index) => {
+    const level = (heading.match(/^#+/) || [''])[0].length;
+    const text = heading.replace(/^#+\s+/, '').trim();
+    const tag = `h${Math.min(level, 6)}`;
+    const icon = icons[tag] || '•';
+    
+    return `
+      <div class="outline-item-improved ${tag}" 
+           data-index="${index}" 
+           data-text="${text.replace(/"/g, '&quot;')}"
+           title="点击跳转到: ${text}">
+        <span class="icon">${icon}</span>
+        <span class="text" style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${text}</span>
+        <span class="level" style="font-size: 10px; color: var(--muted);">H${level}</span>
+      </div>
+    `;
+  }).join('');
+  
+  sidebarContent.innerHTML = itemsHTML;
+  
+  // 绑定点击事件
+  sidebarContent.querySelectorAll('.outline-item-improved').forEach(item => {
+    item.addEventListener('click', () => {
+      const text = item.dataset.text;
+      improvedScrollToHeading(text);
+    });
+  });
+}
+
+/**
+ * 改进的大纲跳转函数
+ * 精确跳转到标题行
+ */
+function improvedScrollToHeading(headingText, focusEditor = true) {
+  console.log(`🔍 跳转到标题: "${headingText}"`);
+  
+  if (!editorInstance) {
+    console.error('❌ 编辑器实例未初始化');
+    return;
+  }
+  
+  const content = editorInstance.getValue();
+  if (!content) {
+    console.warn('⚠️  编辑器内容为空');
+    return;
+  }
+  
+  // 分割为行
+  const lines = content.split('\n');
+  let foundLineIndex = -1;
+  let exactMatch = false;
+  
+  // 第一步：尝试精确匹配
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // 检查是否是标题行
+    if (line.startsWith('#') && line.includes(headingText)) {
+      // 提取标题内容（去除#和空格）
+      const headingContent = line.replace(/^#+\s+/, '').trim();
+      
+      if (headingContent === headingText) {
+        foundLineIndex = i;
+        exactMatch = true;
+        console.log(`✅ 找到精确匹配: 第${i + 1}行`);
+        break;
+      } else if (headingContent.includes(headingText) && foundLineIndex === -1) {
+        // 部分匹配，先记录下来
+        foundLineIndex = i;
+        console.log(`⚠️  找到部分匹配: 第${i + 1}行`);
+      }
+    }
+  }
+  
+  // 第二步：如果没找到精确匹配，尝试模糊匹配
+  if (!exactMatch && foundLineIndex === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.includes(headingText) && (line.startsWith('#') || line.toLowerCase().includes(headingText.toLowerCase()))) {
+        foundLineIndex = i;
+        console.log(`🔍 找到模糊匹配: 第${i + 1}行`);
+        break;
+      }
+    }
+  }
+  
+  // 第三步：执行跳转
+  if (foundLineIndex !== -1) {
+    try {
+      // Vditor API跳转
+      if (typeof editorInstance.focus === 'function') {
+        editorInstance.focus();
+      }
+      
+      // 设置光标位置（基于行的粗略估计）
+      const linePosition = foundLineIndex * 50; // 每行大约50px
+      
+      // 滚动到位置
+      const editorElement = document.querySelector('.vditor');
+      if (editorElement) {
+        editorElement.scrollTop = linePosition;
+      }
+      
+      // 高亮当前大纲项
+      highlightCurrentOutlineItem(headingText);
+      
+      console.log(`🎯 成功跳转到第${foundLineIndex + 1}行`);
+      
+    } catch (error) {
+      console.error('❌ 跳转失败:', error);
+    }
+  } else {
+    console.warn(`⚠️  未找到标题: "${headingText}"`);
+  }
+  
+  // 如果需要，聚焦编辑器
+  if (focusEditor) {
+    setTimeout(() => {
+      if (typeof editorInstance.focus === 'function') {
+        editorInstance.focus();
+      }
+    }, 100);
+  }
+}
+
+/**
+ * 高亮当前大纲项
+ */
+function highlightCurrentOutlineItem(headingText) {
+  const outlineItems = document.querySelectorAll('.outline-item-improved');
+  
+  // 移除所有高亮
+  outlineItems.forEach(item => {
+    item.classList.remove('active');
+  });
+  
+  // 高亮匹配的项
+  outlineItems.forEach(item => {
+    const text = item.textContent || item.innerText;
+    if (text.includes(headingText)) {
+      item.classList.add('active');
+      
+      // 滚动到可见区域
+      item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  });
+}
+
+// 更新大纲按钮的事件监听器
+function updateOutlineButtonListener() {
+  const btnOutline = document.getElementById('btnOutline');
+  if (btnOutline) {
+    // 移除旧的事件监听器（通过克隆替换）
+    const newBtn = btnOutline.cloneNode(true);
+    btnOutline.parentNode.replaceChild(newBtn, btnOutline);
+    
+    // 添加新的事件监听器
+    newBtn.addEventListener('click', toggleOutlineSidebar);
+    newBtn.title = '显示/隐藏文档大纲';
+    console.log('✅ 更新大纲按钮功能');
+  }
+}
+
+// 在初始化完成后更新大纲按钮
+setTimeout(updateOutlineButtonListener, 1000);
