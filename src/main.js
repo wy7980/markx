@@ -147,7 +147,7 @@ function initVditor() {
         'edit-mode',
         {
           name: 'more',
-          toolbar: ['both', 'preview', 'outline', 'export']
+          toolbar: ['both', 'preview', 'export']
         }
       ],
       input: (value) => {
@@ -589,10 +589,10 @@ function setupEventListeners() {
     document.getElementById('sidebar').classList.toggle('collapsed');
   });
   
+  // btnOutline的事件监听器会在updateOutlineButtonListener中更新
+  // 这里暂时绑定空函数，避免重复绑定
   document.getElementById('btnOutline').addEventListener('click', () => {
-    console.log('📑 切换大纲');
-    document.getElementById('outline').classList.toggle('collapsed');
-    document.getElementById('btnOutline').classList.toggle('active');
+    console.log('📑 大纲按钮点击 (将在1秒后更新功能)');
   });
   
   document.getElementById('btnCollapseAll').addEventListener('click', () => {
