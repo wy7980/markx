@@ -75,7 +75,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: 构建 Tauri 应用
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -132,7 +132,7 @@ jobs:
           npx pnpm@10.23.0 run build
 
       - name: 构建 Tauri 应用
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
