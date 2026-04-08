@@ -37,7 +37,8 @@
       "open": true
     },
     "fs": {
-      "scope": ["$HOME/**", "$DOCUMENT/**"]
+      "allow": ["$HOME/**", "$DOCUMENT/**"],
+      "requireLiteralLeadingDot": false
     }
   }
 }

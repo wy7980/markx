@@ -1,0 +1,154 @@
+name: CI Simple
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: 测试
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装 pnpm
+        run: |
+          # 最简单直接的方法
+          npm install -g pnpm@10.23.0
+          
+      - name: 使用 pnpm 安装依赖
+        run: |
+          # 使用npx来调用pnpm，避免PATH问题
+          npx pnpm@10.23.0 install --frozen-lockfile
+          
+      - name: 运行单元测试
+        run: |
+          # 使用npx运行pnpm命令
+          npx pnpm@10.23.0 run test -- --run
+
+      - name: 运行测试覆盖率
+        run: |
+          npx pnpm@10.23.0 run test:coverage
+
+      - name: 上传覆盖率报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  build-windows:
+    name: 构建 Windows 版本
+    runs-on: windows-latest
+    needs: test
+    permissions:
+      contents: write
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 使用 npx + pnpm 安装依赖
+        run: |
+          npm install -g pnpm@10.23.0
+          npx pnpm@10.23.0 install --frozen-lockfile
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 构建 Tauri 应用
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target x86_64-pc-windows-msvc
+          tauriScript: npx pnpm@10.23.0 tauri
+
+      - name: 上传 MSI 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: markx-msi
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+          retention-days: 30
+
+      - name: 上传 NSIS 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: markx-nsis
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          retention-days: 30
+
+  build-macos:
+    name: 构建 macOS 版本
+    runs-on: macos-14
+    needs: test
+    permissions:
+      contents: write
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 使用 npx + pnpm 安装依赖
+        run: |
+          npm install -g pnpm@10.23.0
+          npx pnpm@10.23.0 install --frozen-lockfile
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: 生成 Cargo.lock
+        run: |
+          cd src-tauri
+          cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
+
+      - name: 构建前端
+        run: |
+          npx pnpm@10.23.0 run build
+
+      - name: 构建 Tauri 应用
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target aarch64-apple-darwin --bundles dmg --bundles app
+          tauriScript: npx pnpm@10.23.0 tauri
+
+      - name: 上传 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: markx-macos-dmg
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 30
+
+      - name: 上传 APP
+        uses: actions/upload-artifact@v4
+        with:
+          name: markx-macos-app
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          retention-days: 30
