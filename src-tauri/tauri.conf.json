@@ -43,9 +43,6 @@
       "allowWriteFile": true,
       "scope": ["$HOME/**", "$DOCUMENT/**"]
     },
-    "dialog": {
-      "open": true,
-      "save": true
-    }
+    "dialog": {}
   }
 }
