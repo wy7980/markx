@@ -37,11 +37,7 @@
       "open": true
     },
     "fs": {
-      "requireLiteralLeadingDot": false,
-      "allowReadFile": true,
-      "allowReadDir": true,
-      "allowWriteFile": true,
-      "scope": ["$HOME/**", "$DOCUMENT/**"]
+      "requireLiteralLeadingDot": false
     }
   }
 }
