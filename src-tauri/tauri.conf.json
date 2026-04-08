@@ -37,21 +37,10 @@
       "open": true
     },
     "fs": {
-      "requireLiteralLeadingDot": false
-    }
-  },
-  "security": {
-    "csp": null,
-    "assetProtocol": {
-      "enable": true,
-      "scope": ["**/*"]
-    }
-  },
-  "allowlist": {
-    "fs": {
-      "readDir": true,
-      "readTextFile": true,
-      "writeTextFile": true,
+      "requireLiteralLeadingDot": false,
+      "allowReadFile": true,
+      "allowReadDir": true,
+      "allowWriteFile": true,
       "scope": ["$HOME/**", "$DOCUMENT/**"]
     },
     "dialog": {
