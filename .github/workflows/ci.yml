@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, master]
 
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.23.0'
+
 jobs:
   test:
     name: 测试
@@ -17,16 +21,16 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 pnpm (使用官方action)
-        uses: pnpm/action-setup@v2
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
         with:
-          version: 10.23.0  # 指定版本，与package.json一致
+          version: ${{ env.PNPM_VERSION }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'pnpm'  # 启用pnpm缓存
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
@@ -56,14 +60,14 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
-          version: 10.23.0
+          version: ${{ env.PNPM_VERSION }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: 安装 Rust
@@ -71,19 +75,27 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: 缓存混合
+      - name: 缓存 Cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
+
+      - name: 构建前端
+        run: pnpm run build
+        shell: bash
+
+      - name: 验证前端构建
+        run: ls -la dist/
+        shell: bash
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
@@ -147,14 +159,14 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
-          version: 10.23.0
+          version: ${{ env.PNPM_VERSION }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - name: 安装 Rust
@@ -165,9 +177,9 @@ jobs:
       - name: 生成 Cargo.lock
         run: |
           cd src-tauri
-          cargo generate-lockfile 2>/dev/null || echo "Cargo.lock已存在"
+          cargo generate-lockfile 2>/dev/null || echo "Cargo.lock 已存在"
 
-      - name: 缓存混合
+      - name: 缓存 Cargo
         uses: actions/cache@v4
         with:
           path: |
@@ -183,6 +195,9 @@ jobs:
 
       - name: 构建前端
         run: pnpm run build
+
+      - name: 验证前端构建
+        run: ls -la dist/
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
