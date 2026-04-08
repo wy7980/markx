@@ -37,7 +37,6 @@
       "open": true
     },
     "fs": {
-      "allow": ["$HOME/**", "$DOCUMENT/**"],
       "requireLiteralLeadingDot": false
     }
   }
