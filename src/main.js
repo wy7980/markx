@@ -358,8 +358,10 @@ function renderDirectoryView(list) {
       <div class="recent-title">最近文件</div>
       ${files.slice(0, 5).map(file => `
         <div class="file-item ${file.id === currentFileId ? 'active' : ''}" data-id="${file.id}">
-          <span class="file-icon">📄</span>
-          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${file.name}</span>
+          <span class="file-item-icon">
+            <span class="file-icon">📄</span>
+            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${file.name}</span>
+          </span>
           <span class="file-path">${file.path ? getFileName(getDirPath(file.path)) || '本地' : '内存'}</span>
         </div>
       `).join('')}
@@ -391,47 +393,78 @@ async function loadDirectoryFiles(dirPath, container) {
   
   container.innerHTML = '<div class="loading">加载目录中...</div>';
   
-  // 在Tauri环境中，可以读取目录
+  // 在Tauri环境中，尝试读取目录
   if (window.__TAURI_INTERNALS__ && dirPath) {
     try {
+      // 尝试导入fs插件
       const { readDir } = await import('@tauri-apps/plugin-fs');
-      const entries = await readDir(dirPath, { recursive: false });
       
-      // 过滤出markdown和txt文件
-      const markdownFiles = entries.filter(entry => 
-        !entry.children && 
-        (entry.name.toLowerCase().endsWith('.md') || 
-         entry.name.toLowerCase().endsWith('.txt') ||
-         entry.name.toLowerCase().endsWith('.markdown'))
-      );
-      
-      if (markdownFiles.length === 0) {
-        container.innerHTML = '<div class="no-files">该目录下没有Markdown或TXT文件</div>';
-        return;
+      try {
+        const entries = await readDir(dirPath, { recursive: false });
+        
+        // 过滤出markdown和txt文件
+        const markdownFiles = entries.filter(entry => 
+          !entry.children && 
+          (entry.name.toLowerCase().endsWith('.md') || 
+           entry.name.toLowerCase().endsWith('.txt') ||
+           entry.name.toLowerCase().endsWith('.markdown'))
+        );
+        
+        if (markdownFiles.length === 0) {
+          container.innerHTML = '<div class="no-files">该目录下没有Markdown或TXT文件</div>';
+          return;
+        }
+        
+        container.innerHTML = markdownFiles.map(entry => {
+          const isCurrent = currentFilePath && currentFilePath.endsWith(`/${entry.name}`);
+          return `
+            <div class="file-item ${isCurrent ? 'active' : ''}" data-path="${dirPath}/${entry.name}">
+              <span class="file-icon">📄</span>
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${entry.name}</span>
+              <span class="file-size">${formatFileSize(entry.size || 0)}</span>
+            </div>
+          `;
+        }).join('');
+        
+        // 绑定点击事件
+        container.querySelectorAll('.file-item[data-path]').forEach(item => {
+          item.addEventListener('click', async () => {
+            const path = item.dataset.path;
+            await openFileFromPath(path);
+          });
+        });
+        
+      } catch (fsError) {
+        console.error('❌ 读取目录失败:', fsError);
+        
+        // 根据错误类型显示不同的提示
+        if (fsError.toString().includes('not allowed by ACL')) {
+          container.innerHTML = `
+            <div class="error">
+              <div>⚠️ 权限不足</div>
+              <div style="font-size: 11px; margin-top: 4px;">
+                需要更新Tauri配置以允许读取目录
+              </div>
+              <div style="font-size: 10px; margin-top: 2px; color: var(--muted);">
+                ${fsError.message || fsError.toString()}
+              </div>
+            </div>
+          `;
+        } else {
+          container.innerHTML = `
+            <div class="error">
+              <div>无法读取目录内容</div>
+              <div style="font-size: 11px; margin-top: 4px;">
+                请检查目录是否存在或权限设置
+              </div>
+            </div>
+          `;
+        }
       }
       
-      container.innerHTML = markdownFiles.map(entry => {
-        const isCurrent = currentFilePath && currentFilePath.endsWith(`/${entry.name}`);
-        return `
-          <div class="file-item ${isCurrent ? 'active' : ''}" data-path="${dirPath}/${entry.name}">
-            <span class="file-icon">📄</span>
-            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis;">${entry.name}</span>
-            <span class="file-size">${formatFileSize(entry.size || 0)}</span>
-          </div>
-        `;
-      }).join('');
-      
-      // 绑定点击事件
-      container.querySelectorAll('.file-item[data-path]').forEach(item => {
-        item.addEventListener('click', async () => {
-          const path = item.dataset.path;
-          await openFileFromPath(path);
-        });
-      });
-      
-    } catch (error) {
-      console.error('❌ 读取目录失败:', error);
-      container.innerHTML = '<div class="error">无法读取目录内容</div>';
+    } catch (importError) {
+      console.error('❌ 导入fs插件失败:', importError);
+      container.innerHTML = '<div class="info">文件系统功能不可用</div>';
     }
   } else {
     // Web环境或无路径时，显示提示

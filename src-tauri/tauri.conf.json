@@ -39,5 +39,24 @@
     "fs": {
       "requireLiteralLeadingDot": false
     }
+  },
+  "security": {
+    "csp": null,
+    "assetProtocol": {
+      "enable": true,
+      "scope": ["**/*"]
+    }
+  },
+  "allowlist": {
+    "fs": {
+      "readDir": true,
+      "readTextFile": true,
+      "writeTextFile": true,
+      "scope": ["$HOME/**", "$DOCUMENT/**"]
+    },
+    "dialog": {
+      "open": true,
+      "save": true
+    }
   }
 }
