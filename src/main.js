@@ -127,7 +127,7 @@ function initVditor() {
   return new Promise((resolve) => {
     editorInstance = new Vditor('vditor-container', {
       height: '100%',
-      mode: 'wysiwyg',
+      mode: 'wysiwyg', // 默认模式为所见即所得
       theme: 'classic',
       icon: 'material',
       cache: {
@@ -138,6 +138,11 @@ function initVditor() {
 
 这是一个**轻量级**、*所见即所得*的 Markdown 编辑器。
 `,
+      // 预览模式配置
+      preview: {
+        mode: 'both',
+        actions: []
+      },
       toolbar: [
         'headings', 'bold', 'italic', 'strike', '|',
         'line', 'quote', 'list', 'ordered-list', 'check', '|',
@@ -613,14 +618,24 @@ function setupEventListeners() {
         if (typeof editorInstance.setMode === 'function') {
           editorInstance.setMode(mode);
         } else {
-          // Method 2: Keyboard shortcut fallback (Reliable for Vditor 3.x)
-          const modeMap = { 'wysiwyg': '7', 'ir': '8', 'sv': '9' };
-          const key = modeMap[mode];
-          if (key) {
-            console.log(`⌨️ 使用快捷键 Alt+Ctrl+${key} 切换至 ${mode}`);
+          // Method 2: 自定义模式切换逻辑 - 新增模式映射
+          const modeMap = { 
+            'code': { key: '7', mode: 'ir' },     // 源码模式：即时渲染
+            'read': { key: '0', mode: 'preview' }, // 阅读模式：预览
+            'wysiwyg': { key: '7', mode: 'wysiwyg' } // 所见即所得模式
+          };
+          
+          const modeConfig = modeMap[mode];
+          if (modeConfig) {
+            console.log(`⌨️ 使用快捷键 Alt+Ctrl+${modeConfig.key} 切换至 ${mode} 模式`);
             window.dispatchEvent(new KeyboardEvent('keydown', { 
-              key: key, ctrlKey: true, altKey: true, bubbles: true 
+              key: modeConfig.key, ctrlKey: true, altKey: true, bubbles: true 
             }));
+            // 更新状态显示
+            updateStatus(`已切换到${mode === 'code' ? '源码' : mode === 'read' ? '阅读' : '所见即所得'}模式`);
+          } else {
+            console.warn(`⚠️ 未知模式: ${mode}`);
+            updateStatus(`未知模式: ${mode}`);
           }
         }
       }
@@ -979,3 +994,101 @@ function updateOutlineButtonListener() {
 
 // 在初始化完成后更新大纲按钮
 setTimeout(updateOutlineButtonListener, 1000);
+
+/**
+ * 处理自定义模式切换
+ * @param {string} mode - 模式名称: 'code' | 'read' | 'wysiwyg'
+ */
+function handleCustomModeSwitch(mode) {
+  console.log(`🔄 切换到 ${mode} 模式`);
+  
+  if (!editorInstance) {
+    console.error('❌ 编辑器实例未初始化');
+    return;
+  }
+  
+  // 根据模式执行不同的操作
+  switch (mode) {
+    case 'code':
+      // 源码模式：使用Vditor的ir模式（即时渲染）
+      console.log('📝 切换到源码编辑模式');
+      try {
+        if (typeof editorInstance.setMode === 'function') {
+          editorInstance.setMode('ir');
+        } else {
+          // 使用快捷键切换
+          window.dispatchEvent(new KeyboardEvent('keydown', { 
+            key: '8', ctrlKey: true, altKey: true, bubbles: true 
+          }));
+        }
+        updateStatus('已切换到源码模式');
+      } catch (error) {
+        console.error('❌ 切换到源码模式失败:', error);
+      }
+      break;
+      
+    case 'read':
+      // 阅读模式：只读预览
+      console.log('📖 切换到阅读模式');
+      try {
+        // 尝试切换到预览模式
+        if (typeof editorInstance.setMode === 'function') {
+          editorInstance.setMode('preview');
+        } else {
+          // 使用快捷键切换到预览
+          window.dispatchEvent(new KeyboardEvent('keydown', { 
+            key: '0', ctrlKey: true, altKey: true, bubbles: true 
+          }));
+        }
+        // 禁用编辑功能
+        if (typeof editorInstance.disabled === 'function') {
+          editorInstance.disabled();
+        }
+        updateStatus('已切换到阅读模式');
+      } catch (error) {
+        console.error('❌ 切换到阅读模式失败:', error);
+      }
+      break;
+      
+    case 'wysiwyg':
+      // 所见即所得模式
+      console.log('🎨 切换到所见即所得模式');
+      try {
+        if (typeof editorInstance.setMode === 'function') {
+          editorInstance.setMode('wysiwyg');
+        } else {
+          // 使用快捷键切换
+          window.dispatchEvent(new KeyboardEvent('keydown', { 
+            key: '7', ctrlKey: true, altKey: true, bubbles: true 
+          }));
+        }
+        // 启用编辑功能（如果是从阅读模式切换回来）
+        if (typeof editorInstance.enable === 'function') {
+          editorInstance.enable();
+        }
+        updateStatus('已切换到所见即所得模式');
+      } catch (error) {
+        console.error('❌ 切换到所见即所得模式失败:', error);
+      }
+      break;
+      
+    default:
+      console.warn(`⚠️ 未知模式: ${mode}`);
+      updateStatus(`未知模式: ${mode}`);
+  }
+}
+
+/**
+ * 初始化模式选择器
+ */
+function initModeSelector() {
+  const selectMode = document.getElementById('selectMode');
+  if (selectMode) {
+    // 设置默认模式为"源码"
+    selectMode.value = 'code';
+    console.log('✅ 模式选择器初始化完成，默认模式: 源码');
+  }
+}
+
+// 在应用初始化完成后初始化模式选择器
+setTimeout(initModeSelector, 1500);
