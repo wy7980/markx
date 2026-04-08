@@ -42,7 +42,6 @@
       "allowReadDir": true,
       "allowWriteFile": true,
       "scope": ["$HOME/**", "$DOCUMENT/**"]
-    },
-    "dialog": {}
+    }
   }
 }
