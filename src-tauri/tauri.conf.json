@@ -19,10 +19,7 @@
         "label": "main",
         "devtools": true
       }
-    ],
-    "security": {
-      "csp": null
-    }
+    ]
   },
   "bundle": {
     "active": true,
