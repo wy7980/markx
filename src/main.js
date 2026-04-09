@@ -12,9 +12,6 @@ console.log('🚀 MarkEdit 启动中...');
 let currentFilePath = null;
 let editorInstance = null;
 
-// 初始化应用
-document.addEventListener('DOMContentLoaded', initializeApp);
-
 function initializeApp() {
   console.log('✅ 初始化应用');
   
@@ -78,7 +75,7 @@ async function populateFileList(dirPath, activeFileName) {
           const text = await readTextFile(filePath);
           console.log(`成功读取文件内容长度: ${text.length}`);
           if (editorInstance) {
-            editorInstance.setValue(text, true);
+            editorInstance.setValue(String(text || ''));
           }
           currentFilePath = filePath;
           document.getElementById('filePath').textContent = currentFilePath;
@@ -114,12 +111,11 @@ function initVditor() {
 
     editorInstance = new Vditor('vditor-container', {
       height: '100%',
-      mode: 'wysiwyg',
+      mode: 'ir',
       theme: 'classic',
       icon: 'material',
       cache: {
-        enable: true,
-        id: 'markedit-cache'
+        enable: false,
       },
       value: defaultContent,
       toolbar: [
