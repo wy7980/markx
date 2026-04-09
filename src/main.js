@@ -5,6 +5,8 @@
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
+import Vditor from 'vditor';
+import 'vditor/dist/index.css';
 
 console.log('🚀 MarkEdit 启动中...');
 
@@ -114,6 +116,7 @@ function initVditor() {
       mode: 'ir',
       theme: 'classic',
       icon: 'material',
+      cdn: '/vditor', // 强制指定本地静态挂载目录加载 Lute 引擎和字典
       cache: {
         enable: false,
       },
