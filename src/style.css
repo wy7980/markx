@@ -243,23 +243,56 @@ body {
 /* Status Bar */
 .status-bar {
   height: var(--status-height);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  min-height: 26px;
+  background: var(--accent-color);
+  color: rgba(255, 255, 255, 0.9);
   display: flex;
+  justify-content: space-between;
   align-items: center;
   padding: 0 1rem;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+[data-theme="dark"] .status-bar {
+  background: var(--accent-hover);
+}
+
+.status-left, .status-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.status-icon {
+  opacity: 0.8;
+}
+
+.status-path {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45vw;
+  opacity: 1;
+}
+
+.status-divider {
+  opacity: 0.4;
+  margin: 0 0.1rem;
+}
+
+.status-msg {
+  opacity: 0.8;
+  font-style: italic;
+  font-size: 0.7rem;
 }
 
 .status-item {
-  margin-right: 1rem;
-  color: var(--text-secondary);
-}
-
-#statusText {
-  flex: 1;
-  text-align: right;
-  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  opacity: 0.95;
 }
 
 /* Theme Toggle */

@@ -2,8 +2,8 @@
  * MarkEdit - 核心功能简化版
  * 解决构建问题，确保应用正常工作
  */
-import { open } from '@tauri-apps/plugin-dialog';
-import { readTextFile, readDir } from '@tauri-apps/plugin-fs';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readTextFile, writeTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 
 console.log('🚀 MarkEdit 启动中...');
@@ -158,9 +158,12 @@ function setupEventListeners() {
     btnNew.addEventListener('click', () => {
       console.log('📄 新建文件');
       if (editorInstance) {
-        editorInstance.setValue('# 新文档\n\n开始编辑...');
+        editorInstance.setValue('# 新文档\n\n开始编辑...', true);
       }
-      updateStatus('已创建新文档');
+      currentFilePath = null;
+      document.getElementById('filePath').textContent = '未保存';
+      document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+      updateStatus('已创建新文档 (未保存)');
     });
   }
   
@@ -228,9 +231,58 @@ function setupEventListeners() {
   // 保存文件按钮
   const btnSave = document.getElementById('btnSave');
   if (btnSave) {
-    btnSave.addEventListener('click', () => {
+    btnSave.addEventListener('click', async () => {
       console.log('💾 保存文件');
-      updateStatus('已保存');
+      if (!editorInstance) return;
+      const content = editorInstance.getValue();
+      
+      try {
+        if (currentFilePath) {
+          // 当前已有被打开的绝对路径，直接覆盖保存
+          await writeTextFile(currentFilePath, content);
+          updateStatus('已保存');
+        } else {
+          // 之前是由“新建文档”创建并未保存，或者是初次启动
+          const selectedPath = await save({
+            title: '保存新文档',
+            defaultPath: '未命名文档.md',
+            filters: [{
+              name: '文本文件',
+              extensions: ['md', 'txt']
+            }]
+          });
+          
+          if (selectedPath) {
+            await writeTextFile(selectedPath, content);
+            currentFilePath = selectedPath;
+            const fileName = await basename(selectedPath);
+            const dirPath = await dirname(selectedPath);
+            
+            document.getElementById('filePath').textContent = currentFilePath;
+            updateStatus(`已保存至: ${fileName}`);
+            
+            // 更新左侧列表
+            await populateFileList(dirPath, fileName);
+          }
+        }
+      } catch (error) {
+        console.error('❌ 保存文件失败:', error);
+        
+        // Web端兜底，触发浏览器下载
+        if (String(error).includes('__TAURI_IPC__') || String(error).includes('Tauri')) {
+          const blob = new Blob([content], { type: 'text/markdown' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = '未命名文档.md';
+          a.click();
+          URL.revokeObjectURL(url);
+          updateStatus('已通过浏览器下载保存');
+        } else {
+          updateStatus('保存出错');
+          alert(`保存文件失败: ${error}`);
+        }
+      }
     });
   }
   
