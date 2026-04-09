@@ -69,8 +69,7 @@ async function populateFileList(dirPath, activeFileName) {
       const isActive = file.name === activeFileName;
       el.className = `file-item ${isActive ? 'active' : ''}`;
       el.innerHTML = `
-        <span class="file-icon">📄</span>
-        <span class="file-name">${file.name}</span>
+        <span class="file-name" title="${file.name}">${file.name}</span>
       `;
       el.addEventListener('click', async () => {
         try {
@@ -357,19 +356,7 @@ function toggleTheme() {
     editorInstance.setTheme(editorTheme, contentTheme, codeTheme);
   }
   
-  // 更新图标显示
-  const sunIcon = document.getElementById('sunIcon');
-  const moonIcon = document.getElementById('moonIcon');
-  
-  if (sunIcon && moonIcon) {
-    if (newTheme === 'light') {
-      sunIcon.style.display = 'block';
-      moonIcon.style.display = 'none';
-    } else {
-      sunIcon.style.display = 'none';
-      moonIcon.style.display = 'block';
-    }
-  }
+  // 显隐交由 CSS 中的 [data-theme] 选择器自动控制
   
   updateStatus(`已切换到${newTheme === 'light' ? '浅色' : '深色'}主题`);
 }
