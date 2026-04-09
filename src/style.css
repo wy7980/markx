@@ -235,6 +235,11 @@ body {
   width: 100%;
 }
 
+.vditor-outline {
+  display: none; /* 默认隐藏，由大纲按钮点击触发显示 */
+  max-width: 280px;
+}
+
 /* Status Bar */
 .status-bar {
   height: var(--status-height);

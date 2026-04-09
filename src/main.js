@@ -75,9 +75,11 @@ async function populateFileList(dirPath, activeFileName) {
       el.addEventListener('click', async () => {
         try {
           const filePath = await join(dirPath, file.name);
+          console.log(`尝试读取文件: ${filePath}`);
           const text = await readTextFile(filePath);
+          console.log(`成功读取文件内容长度: ${text.length}`);
           if (editorInstance) {
-            editorInstance.setValue(text);
+            editorInstance.setValue(text, true);
           }
           currentFilePath = filePath;
           document.getElementById('filePath').textContent = currentFilePath;
@@ -87,7 +89,8 @@ async function populateFileList(dirPath, activeFileName) {
           el.classList.add('active');
         } catch (error) {
           console.error('❌ 读取文件失败:', error);
-          updateStatus('读取文件失败');
+          updateStatus(`读取文件失败: ${error}`);
+          alert(`读取失败: ${error}\n路径: ${dirPath}\\${file.name}`);
         }
       });
       fileList.appendChild(el);
@@ -130,7 +133,7 @@ function initVditor() {
         'edit-mode'  // 编辑模式切换
       ],
       outline: {
-        enable: false,
+        enable: true,
         position: 'right'
       },
       input: () => {
@@ -274,12 +277,13 @@ function setupEventListeners() {
   if (btnOutline) {
     btnOutline.addEventListener('click', () => {
       console.log('📑 触发切换大纲');
-      // 模拟点击 Vditor 原生工具栏潜藏的 outline 按钮
-      const nativeOutlineBtn = document.querySelector('.vditor-toolbar [data-type="outline"]');
-      if (nativeOutlineBtn) {
-        nativeOutlineBtn.click();
+      const outlineEl = document.querySelector('.vditor-outline');
+      if (outlineEl) {
+        outlineEl.style.display = (outlineEl.style.display === 'none' || outlineEl.style.display === '') ? 'block' : 'none';
       } else {
-        updateStatus('大纲功能未准备就绪');
+        // Fallback to native toggle
+        const nativeOutlineBtn = document.querySelector('.vditor-toolbar [data-type="outline"]');
+        if (nativeOutlineBtn) nativeOutlineBtn.click();
       }
     });
   }
