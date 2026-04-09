@@ -11,7 +11,7 @@
   --accent-hover: #005a9e;
   --sidebar-width: 240px;
   --toolbar-height: 48px;
-  --status-height: 24px;
+  --status-height: 32px;
 }
 
 [data-theme="dark"] {
@@ -55,12 +55,20 @@ body {
   align-items: center;
   padding: 0 1rem;
   gap: 0.5rem;
+  flex-wrap: nowrap;
 }
 
 .toolbar-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-color);
+  margin: 0 0.25rem;
 }
 
 .toolbar-btn {
@@ -196,6 +204,13 @@ body {
   align-items: center;
   padding: 0 1rem;
   font-size: 0.8rem;
+  gap: 1rem;
+}
+
+.status-bar .status-item,
+.status-bar #statusText,
+.status-bar #filePath {
+  line-height: 1;
 }
 
 .status-item {
@@ -211,9 +226,27 @@ body {
 
 /* Theme Toggle */
 .theme-toggle {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.5rem;
+  cursor: pointer;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  min-width: 36px;
+  min-height: 36px;
   position: relative;
   width: 36px;
   height: 36px;
+}
+
+.theme-toggle:hover {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
 }
 
 #sunIcon, #moonIcon {
