@@ -3,7 +3,8 @@
  * 解决构建问题，确保应用正常工作
  */
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { readTextFile, writeTextFile, readDir } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, readDir, rename, remove } from '@tauri-apps/plugin-fs';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
@@ -13,6 +14,33 @@ console.log('🚀 MarkEdit 启动中...');
 // 基础变量
 let currentFilePath = null;
 let editorInstance = null;
+let contextTargetFile = null; // 用于存储当前右击的目标文件
+
+// 监听全局点击以隐藏右键菜单
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('contextMenu');
+  if (menu && menu.style.display === 'block') {
+    menu.style.display = 'none';
+  }
+});
+
+function showContextMenu(x, y, path, name) {
+  const menu = document.getElementById('contextMenu');
+  if (!menu) return;
+  
+  contextTargetFile = { path, name };
+  menu.style.display = 'block';
+  
+  const rect = menu.getBoundingClientRect();
+  let px = x;
+  let py = y;
+  
+  if (x + rect.width > window.innerWidth) px = window.innerWidth - rect.width;
+  if (y + rect.height > window.innerHeight) py = window.innerHeight - rect.height;
+  
+  menu.style.left = `${px}px`;
+  menu.style.top = `${py}px`;
+}
 
 function initializeApp() {
   console.log('✅ 初始化应用');
@@ -70,6 +98,14 @@ async function populateFileList(dirPath, activeFileName) {
       el.innerHTML = `
         <span class="file-name" title="${file.name}">${file.name}</span>
       `;
+      
+      // 添加右键菜单拦截
+      el.addEventListener('contextmenu', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const filePath = await join(dirPath, file.name);
+        showContextMenu(e.clientX, e.clientY, filePath, file.name);
+      });
       el.addEventListener('click', async () => {
         try {
           const filePath = await join(dirPath, file.name);
@@ -150,6 +186,81 @@ function initVditor() {
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
   
+  // 右键菜单动作事件绑定
+  const menuRename = document.getElementById('menuRename');
+  const menuCopyPath = document.getElementById('menuCopyPath');
+  const menuReveal = document.getElementById('menuReveal');
+  const menuDelete = document.getElementById('menuDelete');
+
+  if (menuRename) {
+    menuRename.addEventListener('click', async () => {
+      if (!contextTargetFile) return;
+      const newName = prompt('重命名文件为:', contextTargetFile.name);
+      if (newName && newName !== contextTargetFile.name) {
+        try {
+          const dir = await dirname(contextTargetFile.path);
+          const newPath = await join(dir, newName);
+          await rename(contextTargetFile.path, newPath);
+          updateStatus(`已重命名: ${newName}`);
+          if (currentFilePath === contextTargetFile.path) {
+            currentFilePath = newPath;
+            document.getElementById('filePath').textContent = newPath;
+          }
+          await populateFileList(dir, currentFilePath ? await basename(currentFilePath) : null);
+        } catch (e) {
+          alert('重命名失败: ' + e);
+        }
+      }
+    });
+  }
+
+  if (menuCopyPath) {
+    menuCopyPath.addEventListener('click', async () => {
+      if (!contextTargetFile) return;
+      try {
+        await navigator.clipboard.writeText(contextTargetFile.path);
+        updateStatus('路径已复制到剪贴板');
+      } catch (e) {
+        console.error(e);
+        updateStatus('复制路径失败');
+      }
+    });
+  }
+  
+  if (menuReveal) {
+    menuReveal.addEventListener('click', async () => {
+      if (!contextTargetFile) return;
+      try {
+        const dir = await dirname(contextTargetFile.path);
+        await shellOpen(dir);
+        updateStatus('已在资源管理器中打开');
+      } catch (e) {
+        alert('打开目录失败: ' + e);
+      }
+    });
+  }
+  
+  if (menuDelete) {
+    menuDelete.addEventListener('click', async () => {
+      if (!contextTargetFile) return;
+      if (confirm(`确定要永久删除 "${contextTargetFile.name}" 吗？此操作不可逆！`)) {
+        try {
+          await remove(contextTargetFile.path);
+          updateStatus('已被删除: ' + contextTargetFile.name);
+          if (currentFilePath === contextTargetFile.path) {
+            currentFilePath = null;
+            document.getElementById('filePath').textContent = '未保存';
+            if (editorInstance) editorInstance.setValue('', true);
+          }
+          const dir = await dirname(contextTargetFile.path);
+          await populateFileList(dir, currentFilePath ? await basename(currentFilePath) : null);
+        } catch (e) {
+          alert('删除失败: ' + e);
+        }
+      }
+    });
+  }
+
   // 新建文件按钮
   const btnNew = document.getElementById('btnNew');
   if (btnNew) {

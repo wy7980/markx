@@ -243,6 +243,59 @@ body {
   max-width: 280px;
 }
 
+/* Context Menu */
+.context-menu {
+  position: absolute;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0.4rem 0;
+  min-width: 180px;
+  z-index: 9999;
+  font-size: 0.85rem;
+}
+
+[data-theme="dark"] .context-menu {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.context-menu .menu-item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+
+.context-menu .menu-item:hover {
+  background: var(--accent-color);
+  color: white;
+}
+
+.context-menu .menu-item.danger:hover {
+  background: #e74c3c;
+  color: white;
+}
+
+.context-menu .menu-item svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.context-menu .menu-item:hover svg {
+  opacity: 1;
+}
+
+.context-menu .menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0.3rem 0;
+}
+
 /* Status Bar */
 .status-bar {
   height: var(--status-height);
