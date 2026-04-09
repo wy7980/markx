@@ -129,6 +129,10 @@ function initVditor() {
         'outline',  // 大纲功能
         'edit-mode'  // 编辑模式切换
       ],
+      outline: {
+        enable: false,
+        position: 'right'
+      },
       input: () => {
         updateWordCount();
       },
@@ -265,12 +269,18 @@ function setupEventListeners() {
     });
   }
   
-  // 大纲按钮 - 使用Vditor内置功能
+  // 大纲按钮 - 触发 Vditor 内置的大纲控制功能
   const btnOutline = document.getElementById('btnOutline');
   if (btnOutline) {
     btnOutline.addEventListener('click', () => {
-      console.log('📑 大纲功能 - 使用Vditor内置');
-      updateStatus('请使用工具栏的大纲功能');
+      console.log('📑 触发切换大纲');
+      // 模拟点击 Vditor 原生工具栏潜藏的 outline 按钮
+      const nativeOutlineBtn = document.querySelector('.vditor-toolbar [data-type="outline"]');
+      if (nativeOutlineBtn) {
+        nativeOutlineBtn.click();
+      } else {
+        updateStatus('大纲功能未准备就绪');
+      }
     });
   }
 }
