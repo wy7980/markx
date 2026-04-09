@@ -2,10 +2,14 @@
  * MarkEdit - 核心功能简化版
  * 解决构建问题，确保应用正常工作
  */
+import { open } from '@tauri-apps/plugin-dialog';
+import { readTextFile, readDir } from '@tauri-apps/plugin-fs';
+import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 
 console.log('🚀 MarkEdit 启动中...');
 
 // 基础变量
+let currentFilePath = null;
 let editorInstance = null;
 
 // 初始化应用
@@ -18,11 +22,79 @@ function initializeApp() {
   initVditor().then(() => {
     console.log('🎉 编辑器初始化完成');
     setupEventListeners();
+    populateFileList();
     updateStatus('应用已就绪');
   }).catch(err => {
     console.error('❌ 编辑器初始化失败:', err);
     updateStatus('编辑器初始化失败');
   });
+}
+
+// 填充并刷新文件列表
+async function populateFileList(dirPath, activeFileName) {
+  const fileList = document.getElementById('fileList');
+  const sidebarFolder = document.getElementById('sidebarFolder');
+  const folderNameSpan = document.getElementById('folderName');
+  if (!fileList) return;
+  
+  if (!dirPath) {
+    fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件以显示列表</div>';
+    if (sidebarFolder) sidebarFolder.style.display = 'none';
+    return;
+  }
+
+  try {
+    const folderName = await basename(dirPath);
+    if (sidebarFolder && folderNameSpan) {
+      sidebarFolder.style.display = 'block';
+      folderNameSpan.textContent = folderName;
+    }
+
+    const entries = await readDir(dirPath);
+    const files = entries.filter(entry => {
+      if (entry.isDirectory) return false;
+      const lowerName = entry.name.toLowerCase();
+      return lowerName.endsWith('.md') || lowerName.endsWith('.txt');
+    });
+    
+    fileList.innerHTML = '';
+    
+    if (files.length === 0) {
+      fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">此文件夹没有对应的文本文件</div>';
+      return;
+    }
+
+    files.forEach(file => {
+      const el = document.createElement('div');
+      const isActive = file.name === activeFileName;
+      el.className = `file-item ${isActive ? 'active' : ''}`;
+      el.innerHTML = `
+        <span class="file-icon">📄</span>
+        <span class="file-name">${file.name}</span>
+      `;
+      el.addEventListener('click', async () => {
+        try {
+          const filePath = await join(dirPath, file.name);
+          const text = await readTextFile(filePath);
+          if (editorInstance) {
+            editorInstance.setValue(text);
+          }
+          currentFilePath = filePath;
+          document.getElementById('filePath').textContent = currentFilePath;
+          updateStatus(`已打开: ${file.name}`);
+          
+          document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+          el.classList.add('active');
+        } catch (error) {
+          console.error('❌ 读取文件失败:', error);
+          updateStatus('读取文件失败');
+        }
+      });
+      fileList.appendChild(el);
+    });
+  } catch (error) {
+    console.error('❌ 读取目录失败:', error);
+  }
 }
 
 // 初始化Vditor编辑器
@@ -90,26 +162,59 @@ function setupEventListeners() {
   if (btnOpen) {
     btnOpen.addEventListener('click', async () => {
       console.log('📁 打开文件');
-      // Web环境回退方案
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.md,.txt';
-      input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          try {
-            const text = await file.text();
-            if (editorInstance) {
-              editorInstance.setValue(text);
-            }
-            updateStatus(`已打开: ${file.name}`);
-          } catch (error) {
-            console.error('❌ 读取文件失败:', error);
-            updateStatus('读取文件失败');
+      try {
+        const selected = await open({
+          multiple: false,
+          filters: [{
+            name: '文本文件',
+            extensions: ['md', 'txt']
+          }]
+        });
+        
+        if (selected) {
+          // 兼容Tauri API的不同返回值 (字符串 或 {path: ...})
+          const filePath = selected.path || selected;
+          const text = await readTextFile(filePath);
+          if (editorInstance) {
+            editorInstance.setValue(text);
           }
+          currentFilePath = filePath;
+          const fileName = await basename(filePath);
+          const dirPath = await dirname(filePath);
+          
+          document.getElementById('filePath').textContent = currentFilePath;
+          updateStatus(`已打开: ${fileName}`);
+          
+          // 更新侧边栏文件列表
+          await populateFileList(dirPath, fileName);
         }
-      };
-      input.click();
+      } catch (error) {
+        console.error('❌ 打开文件失败:', error);
+        // 如果不在 Tauri 环境中运行，退回至 Web 方案
+        if (String(error).includes('__TAURI_IPC__') || String(error).includes('Tauri')) {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.md,.txt';
+          input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              try {
+                const text = await file.text();
+                if (editorInstance) {
+                  editorInstance.setValue(text);
+                }
+                updateStatus(`已打开: ${file.name}`);
+              } catch (err) {
+                console.error('❌ 读取文件失败:', err);
+                updateStatus('读取文件失败');
+              }
+            }
+          };
+          input.click();
+        } else {
+          updateStatus('无法打开应用对话框');
+        }
+      }
     });
   }
   
@@ -139,29 +244,7 @@ function setupEventListeners() {
     });
   }
   
-  // 模式选择器
-  const selectMode = document.getElementById('selectMode');
-  if (selectMode) {
-    selectMode.addEventListener('change', (e) => {
-      const mode = e.target.value;
-      console.log('🔄 切换编辑模式:', mode);
-      
-      if (editorInstance) {
-        try {
-          editorInstance.setMode(mode);
-          const modeNames = {
-            'code': '源码模式',
-            'read': '阅读模式', 
-            'wysiwyg': '所见即所得模式'
-          };
-          updateStatus(`已切换到${modeNames[mode] || mode}`);
-        } catch (error) {
-          console.error('❌ 模式切换失败:', error);
-          updateStatus('模式切换失败');
-        }
-      }
-    });
-  }
+  // 由于编辑器模式切换采用内置工具栏的功能更为稳定，这里已移除自定义模式下拉的绑定。
   
   // 主题切换按钮
   const btnTheme = document.getElementById('btnTheme');
@@ -199,6 +282,14 @@ function toggleTheme() {
   
   document.documentElement.setAttribute('data-theme', newTheme);
   localStorage.setItem('markedit-theme', newTheme);
+  
+  // 更新编辑器主题
+  if (editorInstance) {
+    const editorTheme = newTheme === 'dark' ? 'dark' : 'classic';
+    const contentTheme = newTheme === 'dark' ? 'dark' : 'light';
+    const codeTheme = newTheme === 'dark' ? 'native' : 'github';
+    editorInstance.setTheme(editorTheme, contentTheme, codeTheme);
+  }
   
   // 更新图标显示
   const sunIcon = document.getElementById('sunIcon');
