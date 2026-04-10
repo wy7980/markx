@@ -51,19 +51,35 @@ function showContextMenu(x, y, path, name) {
   menu.style.top = `${py}px`;
 }
 
+function hideSplash() {
+  const splash = document.getElementById('splashScreen');
+  if (splash) {
+    splash.classList.add('hidden');
+    // 动画结束后移除 DOM
+    setTimeout(() => splash.remove(), 500);
+  }
+}
+
 function initializeApp() {
   console.log('✅ 初始化应用');
   
-  // 初始化Vditor编辑器
+  // 先绑定事件监听器（UI 骨架已经可交互）
+  setupEventListeners();
+  populateFileList();
+  
+  // 异步初始化 Vditor 编辑器
   initVditor().then(() => {
     console.log('🎉 编辑器初始化完成');
-    setupEventListeners();
-    populateFileList();
     updateStatus('应用已就绪');
+    hideSplash();
   }).catch(err => {
     console.error('❌ 编辑器初始化失败:', err);
     updateStatus('编辑器初始化失败');
+    hideSplash();
   });
+  
+  // 安全兜底：10 秒后强制隐藏 splash
+  setTimeout(hideSplash, 10000);
 }
 
 // 填充并刷新文件列表
