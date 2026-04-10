@@ -136,9 +136,13 @@ body {
 }
 
 .sidebar-header {
-  padding: 1rem;
+  height: var(--toolbar-height);
+  min-height: var(--toolbar-height);
+  padding: 0 1rem;
   border-bottom: 1px solid var(--border-color);
   font-weight: 600;
+  display: flex;
+  align-items: center;
 }
 
 .logo {
@@ -402,4 +406,107 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+/* Export Dropdown */
+.export-wrapper {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0.4rem 0;
+  min-width: 170px;
+  z-index: 9998;
+  font-size: 0.85rem;
+}
+
+[data-theme="dark"] .export-menu {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.export-menu-item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+
+.export-menu-item:hover {
+  background: var(--accent-color);
+  color: white;
+}
+
+.export-menu-item:hover svg {
+  stroke: white;
+}
+
+.export-menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0.3rem 0;
+}
+
+/* Print Styles for PDF Export */
+@media print {
+  /* Hide all UI chrome */
+  .sidebar,
+  .toolbar,
+  .status-bar,
+  .context-menu,
+  .export-menu,
+  .vditor-toolbar,
+  .vditor-outline,
+  .vditor-tip {
+    display: none !important;
+  }
+
+  /* Reset layout for full-page content */
+  body, .app, .main {
+    height: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .app {
+    display: block !important;
+  }
+
+  .editor-container,
+  .editor-wrapper,
+  .vditor,
+  .vditor-ir {
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .vditor {
+    border: none !important;
+  }
+
+  /* Clean typography for print */
+  .vditor-ir pre.vditor-reset {
+    font-size: 12pt !important;
+    line-height: 1.6 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Ensure code blocks don't overflow */
+  pre, code {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
 }

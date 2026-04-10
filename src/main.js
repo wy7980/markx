@@ -399,20 +399,119 @@ function setupEventListeners() {
     });
   }
   
-  // 导出文件按钮
+  // 导出文件按钮 - 多格式支持
   const btnExport = document.getElementById('btnExport');
-  if (btnExport) {
-    btnExport.addEventListener('click', () => {
-      console.log('📤 导出文件');
-      const content = editorInstance ? editorInstance.getValue() : '';
-      const blob = new Blob([content], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'document.md';
-      a.click();
-      URL.revokeObjectURL(url);
-      updateStatus('已导出');
+  const exportMenu = document.getElementById('exportMenu');
+  const exportMd = document.getElementById('exportMd');
+  const exportHtml = document.getElementById('exportHtml');
+  const exportPdf = document.getElementById('exportPdf');
+
+  if (btnExport && exportMenu) {
+    btnExport.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.style.display = exportMenu.style.display === 'block' ? 'none' : 'block';
+    });
+
+    // 全局点击关闭导出菜单
+    document.addEventListener('click', (e) => {
+      if (!exportMenu.contains(e.target) && e.target !== btnExport) {
+        exportMenu.style.display = 'none';
+      }
+    });
+  }
+
+  // 导出 Markdown
+  if (exportMd) {
+    exportMd.addEventListener('click', async () => {
+      exportMenu.style.display = 'none';
+      if (!editorInstance) return;
+      try {
+        const defaultName = currentFilePath ? await basename(currentFilePath) : '未命名文档.md';
+        const selectedPath = await save({
+          title: '导出 Markdown',
+          defaultPath: defaultName,
+          filters: [{ name: 'Markdown 文件', extensions: ['md'] }]
+        });
+        if (selectedPath) {
+          await writeTextFile(selectedPath, editorInstance.getValue());
+          updateStatus(`已导出 Markdown: ${await basename(selectedPath)}`);
+        }
+      } catch (e) {
+        console.error('导出 Markdown 失败:', e);
+        // Web 端兜底
+        const blob = new Blob([editorInstance.getValue()], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.md';
+        a.click();
+        URL.revokeObjectURL(url);
+        updateStatus('已通过浏览器下载导出 Markdown');
+      }
+    });
+  }
+
+  // 导出 HTML
+  if (exportHtml) {
+    exportHtml.addEventListener('click', async () => {
+      exportMenu.style.display = 'none';
+      if (!editorInstance) return;
+      const htmlContent = editorInstance.getHTML();
+      const fullHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${currentFilePath ? await basename(currentFilePath, '.md') : '文档'}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #333; }
+    pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+    code { background: #f0f0f0; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #ddd; margin: 0; padding-left: 1rem; color: #666; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    th { background: #f5f5f5; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>${htmlContent}</body>
+</html>`;
+      try {
+        const selectedPath = await save({
+          title: '导出 HTML',
+          defaultPath: (currentFilePath ? await basename(currentFilePath, '.md') : '文档') + '.html',
+          filters: [{ name: 'HTML 文件', extensions: ['html'] }]
+        });
+        if (selectedPath) {
+          await writeTextFile(selectedPath, fullHtml);
+          updateStatus(`已导出 HTML: ${await basename(selectedPath)}`);
+        }
+      } catch (e) {
+        console.error('导出 HTML 失败:', e);
+        const blob = new Blob([fullHtml], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.html';
+        a.click();
+        URL.revokeObjectURL(url);
+        updateStatus('已通过浏览器下载导出 HTML');
+      }
+    });
+  }
+
+  // 导出 PDF (通过系统打印对话框)
+  if (exportPdf) {
+    exportPdf.addEventListener('click', () => {
+      exportMenu.style.display = 'none';
+      if (!editorInstance) return;
+      updateStatus('正在准备 PDF 导出...');
+      // 短延迟确保菜单关闭后再触发打印
+      setTimeout(() => {
+        window.print();
+        updateStatus('PDF 导出完成');
+      }, 200);
     });
   }
   
