@@ -164,7 +164,11 @@ function initVditor() {
         'link', 'table', '|',
         'undo', 'redo', '|',
         'outline',  // 大纲功能
-        'edit-mode'  // 编辑模式切换
+        {
+          name: 'edit-mode',
+          tipPosition: 'ne',
+          icon: '<svg viewBox="0 0 24 24"><path d="M10 2v20H2V2h8zm12 0h-8v9h8V2zm0 11h-8v9h8v-9z"/></svg>'
+        }
       ],
       outline: {
         enable: true,
