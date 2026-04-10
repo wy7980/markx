@@ -7,7 +7,7 @@
     "core:default",
     {
       "identifier": "shell:allow-open",
-      "allow": [{ "match": ".*" }]
+      "allow": [{ "open": ".*" }]
     },
     "dialog:allow-open",
     "dialog:allow-save",
