@@ -16,6 +16,15 @@ let currentFilePath = null;
 let editorInstance = null;
 let contextTargetFile = null; // 用于存储当前右击的目标文件
 
+// 全局禁用浏览器默认右键菜单（侧边栏文件列表由自定义菜单接管）
+document.addEventListener('contextmenu', (e) => {
+  // 仅允许编辑器内容区域（Vditor 输入区）保留右键（用于复制粘贴等）
+  const isEditorContent = e.target.closest('.vditor-ir, .vditor-sv, .vditor-wysiwyg');
+  if (!isEditorContent) {
+    e.preventDefault();
+  }
+});
+
 // 监听全局点击以隐藏右键菜单
 document.addEventListener('click', (e) => {
   const menu = document.getElementById('contextMenu');
