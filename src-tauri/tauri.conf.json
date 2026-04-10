@@ -17,7 +17,19 @@
         "height": 800,
         "resizable": true,
         "label": "main",
+        "visible": false,
         "devtools": true
+      },
+      {
+        "label": "splashscreen",
+        "url": "splashscreen.html",
+        "width": 420,
+        "height": 320,
+        "decorations": false,
+        "center": true,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "transparent": false
       }
     ]
   },

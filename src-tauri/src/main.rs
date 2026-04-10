@@ -7,11 +7,22 @@ use tauri::Manager;
 use std::fs::File;
 use std::io::Write;
 
+#[tauri::command]
+async fn close_splashscreen(app: tauri::AppHandle) {
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.close();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+    }
+}
+
 fn main() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .invoke_handler(tauri::generate_handler![close_splashscreen])
         .setup(|app| {
             #[cfg(debug_assertions)]
             {

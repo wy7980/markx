@@ -6,6 +6,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile, readDir, rename, remove } from '@tauri-apps/plugin-fs';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
+import { invoke } from '@tauri-apps/api/core';
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
 
@@ -52,10 +53,14 @@ function showContextMenu(x, y, path, name) {
 }
 
 function hideSplash() {
+  // 关闭原生 Tauri splashscreen 窗口 + 显示主窗口
+  invoke('close_splashscreen').catch(() => {
+    console.log('ℹ️ 非 Tauri 环境，跳过原生 splash 关闭');
+  });
+  // 同时移除 CSS 内嵌的 splash（dev 模式兜底）
   const splash = document.getElementById('splashScreen');
   if (splash) {
     splash.classList.add('hidden');
-    // 动画结束后移除 DOM
     setTimeout(() => splash.remove(), 500);
   }
 }
