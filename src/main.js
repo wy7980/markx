@@ -32,13 +32,39 @@ let contextTargetFile = null; // 用于存储当前右击的目标文件
 // 处理通过命令行打开的文件
 async function handleInitialFile() {
   try {
+    console.log('🔍 检查是否有通过命令行打开的文件...');
     const initialFile = await invoke('get_initial_file');
+    
     if (initialFile) {
       console.log(`📂 通过命令行打开文件: ${initialFile}`);
-      await openFileFromPath(initialFile);
+      console.log(`📁 文件路径类型: ${typeof initialFile}`);
+      console.log(`📁 文件路径长度: ${initialFile.length}`);
+      
+      // 检查路径是否有效
+      try {
+        await openFileFromPath(initialFile);
+      } catch (error) {
+        console.error('❌ 打开文件失败:', error);
+        
+        // 尝试其他可能的路径格式
+        if (initialFile.startsWith('file://')) {
+          console.log('💡 尝试处理file:// URL格式...');
+          const filePath = initialFile.replace('file://', '');
+          await openFileFromPath(filePath);
+        } else if (!initialFile.includes('/') && !initialFile.includes('\\')) {
+          console.log('💡 尝试在当前目录下查找文件...');
+          // 可能是相对路径
+          const currentDir = await invoke('get_current_dir');
+          const fullPath = `${currentDir}/${initialFile}`;
+          await openFileFromPath(fullPath);
+        }
+      }
+    } else {
+      console.log('ℹ️  没有通过命令行传入的文件');
     }
   } catch (error) {
     console.error('❌ 获取初始文件失败:', error);
+    console.error('错误详情:', error.message);
   }
 }
 
