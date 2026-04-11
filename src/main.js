@@ -10,6 +10,17 @@ import { invoke } from '@tauri-apps/api/core';
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
 
+// 导入文件类型检测模块
+import { 
+  getFileType, 
+  isMarkdownFile, 
+  getEditorMode, 
+  getFileLanguage,
+  getFileIcon,
+  getAllFileTypes,
+  getSupportedExtensions 
+} from './file-types.js';
+
 console.log('🚀 MarkEdit 启动中...');
 
 // macOS检测和调试
@@ -34,18 +45,18 @@ async function handleInitialFile() {
   try {
     console.log('🔍 检查是否有通过命令行打开的文件...');
     const initialFile = await invoke('get_initial_file');
-    
+
     if (initialFile) {
       console.log(`📂 通过命令行打开文件: ${initialFile}`);
       console.log(`📁 文件路径类型: ${typeof initialFile}`);
       console.log(`📁 文件路径长度: ${initialFile.length}`);
-      
+
       // 检查路径是否有效
       try {
         await openFileFromPath(initialFile);
       } catch (error) {
         console.error('❌ 打开文件失败:', error);
-        
+
         // 尝试其他可能的路径格式
         if (initialFile.startsWith('file://')) {
           console.log('💡 尝试处理file:// URL格式...');
@@ -74,20 +85,33 @@ async function openFileFromPath(filePath) {
     console.log(`尝试读取文件: ${filePath}`);
     const text = await readTextFile(filePath);
     console.log(`成功读取文件内容长度: ${text.length}`);
-    
+
+    // 获取文件信息
+    const fileName = await basename(filePath);
+    const fileInfo = getFileType(fileName);
+
+    console.log(`📁 文件类型: ${fileInfo.name}`);
+    console.log(`📝 编辑器模式: ${getEditorMode(fileName)}`);
+    console.log(`💻 编程语言: ${getFileLanguage(fileName)}`);
+
+    // 设置编辑器内容
     if (editorInstance) {
       editorInstance.setValue(String(text || ''));
+
+      // 根据文件类型调整编辑器模式
+      adjustEditorForFileType(fileName);
     }
-    
+
     currentFilePath = filePath;
-    document.getElementById('filePath').textContent = currentFilePath;
-    
+
+    // 更新界面显示
+    updateFileInfoDisplay(fileName, fileInfo);
+
     // 更新侧边栏
-    const fileName = await basename(filePath);
     const dirPath = await dirname(filePath);
     await populateFileList(dirPath, fileName);
-    
-    updateStatus(`已打开: ${fileName}`);
+
+    updateStatus(`已打开: ${fileName} (${fileInfo.name})`);
   } catch (error) {
     console.error('❌ 打开文件失败:', error);
     updateStatus(`打开文件失败: ${error}`);
@@ -115,17 +139,17 @@ document.addEventListener('click', (e) => {
 function showContextMenu(x, y, path, name) {
   const menu = document.getElementById('contextMenu');
   if (!menu) return;
-  
+
   contextTargetFile = { path, name };
   menu.style.display = 'block';
-  
+
   const rect = menu.getBoundingClientRect();
   let px = x;
   let py = y;
-  
+
   if (x + rect.width > window.innerWidth) px = window.innerWidth - rect.width;
   if (y + rect.height > window.innerHeight) py = window.innerHeight - rect.height;
-  
+
   menu.style.left = `${px}px`;
   menu.style.top = `${py}px`;
 }
@@ -145,17 +169,17 @@ function hideSplash() {
 
 function initializeApp() {
   console.log('✅ 初始化应用');
-  
+
   // 先绑定事件监听器（UI 骨架已经可交互）
   setupEventListeners();
   populateFileList();
-  
+
   // 异步初始化 Vditor 编辑器
   initVditor().then(() => {
     console.log('🎉 编辑器初始化完成');
     updateStatus('应用已就绪');
     hideSplash();
-    
+
     // 处理通过命令行打开的文件
     handleInitialFile();
   }).catch(err => {
@@ -163,7 +187,7 @@ function initializeApp() {
     updateStatus('编辑器初始化失败');
     hideSplash();
   });
-  
+
   // 安全兜底：10 秒后强制隐藏 splash
   setTimeout(hideSplash, 10000);
 }
@@ -174,7 +198,7 @@ async function populateFileList(dirPath, activeFileName) {
   const sidebarFolder = document.getElementById('sidebarFolder');
   const folderNameSpan = document.getElementById('folderName');
   if (!fileList) return;
-  
+
   if (!dirPath) {
     fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件以显示列表</div>';
     if (sidebarFolder) sidebarFolder.style.display = 'none';
@@ -191,12 +215,22 @@ async function populateFileList(dirPath, activeFileName) {
     const entries = await readDir(dirPath);
     const files = entries.filter(entry => {
       if (entry.isDirectory) return false;
-      const lowerName = entry.name.toLowerCase();
-      return lowerName.endsWith('.md') || lowerName.endsWith('.txt');
+
+      // 获取文件扩展名
+      const parts = entry.name.split('.');
+      if (parts.length < 2) {
+        // 无扩展名的文件，检查是否是特殊文件
+        const specialFiles = ['Dockerfile', 'Makefile', 'dockerfile', 'makefile'];
+        return specialFiles.includes(entry.name);
+      }
+
+      const extension = parts[parts.length - 1].toLowerCase();
+      const supportedExtensions = getSupportedExtensions();
+      return supportedExtensions.includes(extension);
     });
-    
+
     fileList.innerHTML = '';
-    
+
     if (files.length === 0) {
       fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">此文件夹没有对应的文本文件</div>';
       return;
@@ -205,11 +239,16 @@ async function populateFileList(dirPath, activeFileName) {
     files.forEach(file => {
       const el = document.createElement('div');
       const isActive = file.name === activeFileName;
+      const fileIcon = getFileIcon(file.name);
+      const fileType = getFileType(file.name);
+      
       el.className = `file-item ${isActive ? 'active' : ''}`;
       el.innerHTML = `
+        <span class="file-icon">${fileIcon}</span>
         <span class="file-name" title="${file.name}">${file.name}</span>
+        <span class="file-type-badge">${fileType.name}</span>
       `;
-      
+
       // 添加右键菜单拦截
       el.addEventListener('contextmenu', async (e) => {
         e.preventDefault();
@@ -229,7 +268,7 @@ async function populateFileList(dirPath, activeFileName) {
           currentFilePath = filePath;
           document.getElementById('filePath').textContent = currentFilePath;
           updateStatus(`已打开: ${file.name}`);
-          
+
           document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
           el.classList.add('active');
         } catch (error) {
@@ -300,7 +339,7 @@ function initVditor() {
 // 设置事件监听器
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
-  
+
   // 右键菜单动作事件绑定
   const menuRename = document.getElementById('menuRename');
   const menuCopyPath = document.getElementById('menuCopyPath');
@@ -341,7 +380,7 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   if (menuReveal) {
     menuReveal.addEventListener('click', async () => {
       if (!contextTargetFile) return;
@@ -354,7 +393,7 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   if (menuDelete) {
     menuDelete.addEventListener('click', async () => {
       if (!contextTargetFile) return;
@@ -390,21 +429,21 @@ function setupEventListeners() {
       updateStatus('已创建新文档 (未保存)');
     });
   }
-  
+
   // 打开文件按钮
   const btnOpen = document.getElementById('btnOpen');
   if (btnOpen) {
     btnOpen.addEventListener('click', async () => {
       console.log('📁 打开文件');
       try {
+        const fileFilters = getSupportedFileFilters();
+
         const selected = await open({
           multiple: false,
-          filters: [{
-            name: '文本文件',
-            extensions: ['md', 'txt']
-          }]
+          filters: fileFilters,
+          defaultPath: currentFilePath ? await dirname(currentFilePath) : undefined
         });
-        
+
         if (selected) {
           // 兼容Tauri API的不同返回值 (字符串 或 {path: ...})
           const filePath = selected.path || selected;
@@ -415,10 +454,10 @@ function setupEventListeners() {
           currentFilePath = filePath;
           const fileName = await basename(filePath);
           const dirPath = await dirname(filePath);
-          
+
           document.getElementById('filePath').textContent = currentFilePath;
           updateStatus(`已打开: ${fileName}`);
-          
+
           // 更新侧边栏文件列表
           await populateFileList(dirPath, fileName);
         }
@@ -451,7 +490,7 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   // 保存文件按钮
   const btnSave = document.getElementById('btnSave');
   if (btnSave) {
@@ -459,39 +498,37 @@ function setupEventListeners() {
       console.log('💾 保存文件');
       if (!editorInstance) return;
       const content = editorInstance.getValue();
-      
+
       try {
         if (currentFilePath) {
           // 当前已有被打开的绝对路径，直接覆盖保存
           await writeTextFile(currentFilePath, content);
           updateStatus('已保存');
         } else {
-          // 之前是由“新建文档”创建并未保存，或者是初次启动
+          // 之前是由"新建文档"创建并未保存，或者是初次启动
+          const defaultFilename = await getDefaultSaveFilename(null, content);
           const selectedPath = await save({
             title: '保存新文档',
-            defaultPath: '未命名文档.md',
-            filters: [{
-              name: '文本文件',
-              extensions: ['md', 'txt']
-            }]
+            defaultPath: defaultFilename,
+            filters: getSupportedFileFilters()
           });
-          
+
           if (selectedPath) {
             await writeTextFile(selectedPath, content);
             currentFilePath = selectedPath;
             const fileName = await basename(selectedPath);
             const dirPath = await dirname(selectedPath);
-            
+
             document.getElementById('filePath').textContent = currentFilePath;
             updateStatus(`已保存至: ${fileName}`);
-            
+
             // 更新左侧列表
             await populateFileList(dirPath, fileName);
           }
         }
       } catch (error) {
         console.error('❌ 保存文件失败:', error);
-        
+
         // Web端兜底，触发浏览器下载
         if (String(error).includes('__TAURI_IPC__') || String(error).includes('Tauri')) {
           const blob = new Blob([content], { type: 'text/markdown' });
@@ -509,7 +546,7 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   // 导出文件按钮 - 多格式支持
   const btnExport = document.getElementById('btnExport');
   const exportMenu = document.getElementById('exportMenu');
@@ -625,15 +662,15 @@ function setupEventListeners() {
       }, 200);
     });
   }
-  
+
   // 由于编辑器模式切换采用内置工具栏的功能更为稳定，这里已移除自定义模式下拉的绑定。
-  
+
   // 主题切换按钮
   const btnTheme = document.getElementById('btnTheme');
   if (btnTheme) {
     btnTheme.addEventListener('click', toggleTheme);
   }
-  
+
   // 侧边栏切换按钮
   const btnToggleSidebar = document.getElementById('btnToggleSidebar');
   if (btnToggleSidebar) {
@@ -646,7 +683,7 @@ function setupEventListeners() {
       }
     });
   }
-  
+
   // 大纲按钮 - 触发 Vditor 内置的大纲控制功能
   const btnOutline = document.getElementById('btnOutline');
   if (btnOutline) {
@@ -668,10 +705,10 @@ function setupEventListeners() {
 function toggleTheme() {
   const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
   const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-  
+
   document.documentElement.setAttribute('data-theme', newTheme);
   localStorage.setItem('markedit-theme', newTheme);
-  
+
   // 更新编辑器主题
   if (editorInstance) {
     const editorTheme = newTheme === 'dark' ? 'dark' : 'classic';
@@ -679,23 +716,23 @@ function toggleTheme() {
     const codeTheme = newTheme === 'dark' ? 'native' : 'github';
     editorInstance.setTheme(editorTheme, contentTheme, codeTheme);
   }
-  
+
   // 显隐交由 CSS 中的 [data-theme] 选择器自动控制
-  
+
   updateStatus(`已切换到${newTheme === 'light' ? '浅色' : '深色'}主题`);
 }
 
 // 更新字数统计
 function updateWordCount() {
   if (!editorInstance) return;
-  
+
   const content = editorInstance.getValue();
   const text = content.replace(/[#*`\[\]()>-]/g, '').replace(/\s/g, '');
   const paragraphs = content.split(/\n\n+/).filter(p => p.trim()).length;
-  
+
   const wordCount = document.getElementById('wordCount');
   const paraCount = document.getElementById('paraCount');
-  
+
   if (wordCount) wordCount.textContent = text.length;
   if (paraCount) paraCount.textContent = paragraphs;
 }
@@ -714,6 +751,226 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
   initializeApp();
+}
+
+// 将文件类型函数暴露到全局，方便测试
+window.getFileType = getFileType;
+window.getFileIcon = getFileIcon;
+window.isMarkdownFile = isMarkdownFile;
+window.getEditorMode = getEditorMode;
+window.getFileLanguage = getFileLanguage;
+
+// ============================================
+// 新增函数：文件类型相关功能
+// ============================================
+
+/**
+ * 根据文件类型调整编辑器配置
+ * @param {string} filename - 文件名
+ */
+function adjustEditorForFileType(filename) {
+  if (!editorInstance) return;
+
+  const fileInfo = getFileType(filename);
+  const isMarkdown = isMarkdownFile(filename);
+  const editorMode = getEditorMode(filename);
+
+  console.log(`🛠️  调整编辑器配置:`, {
+    filename,
+    type: fileInfo.name,
+    isMarkdown,
+    mode: editorMode
+  });
+
+  // 对于非 Markdown 文件，禁用一些 Markdown 特定的工具栏按钮
+  if (!isMarkdown) {
+    // 可以在这里添加逻辑来隐藏或禁用某些工具栏按钮
+    console.log('ℹ️  非 Markdown 文件，已禁用 Markdown 特定功能');
+
+    // 更新编辑器提示
+    const editorContainer = document.getElementById('vditor-container');
+    if (editorContainer) {
+      const hintElement = editorContainer.querySelector('.file-type-hint');
+      if (!hintElement) {
+        const hint = document.createElement('div');
+        hint.className = 'file-type-hint';
+        hint.style.cssText = `
+          padding: 8px 12px;
+          margin: 10px;
+          background: #f0f0f0;
+          border-left: 4px solid #4a90e2;
+          border-radius: 4px;
+          font-size: 14px;
+          color: #333;
+        `;
+        hint.innerHTML = `📄 正在编辑 ${fileInfo.name} 文件 (${fileInfo.icon})`;
+        editorContainer.parentNode.insertBefore(hint, editorContainer);
+      }
+    }
+  }
+
+  // 根据文件类型设置合适的编辑器模式
+  // 对于纯文本文件，使用源码模式
+  // 对于代码文件，使用源码模式
+  // 对于 Markdown 文件，保持原有模式
+  if (editorMode === 'plain' || editorMode === 'code') {
+    // 非 Markdown 文件，确保使用源码模式
+    if (editorInstance.vditor) {
+      editorInstance.vditor.toolbar.elements.editMode?.addEventListener('click', () => {
+        // 切换编辑模式时，限制非 Markdown 文件只能使用源码模式
+        editorInstance.setMode('sv');
+      });
+    }
+  }
+}
+
+/**
+ * 更新文件信息显示
+ * @param {string} filename - 文件名
+ * @param {Object} fileInfo - 文件类型信息
+ */
+function updateFileInfoDisplay(filename, fileInfo) {
+  // 更新文件路径显示
+  const filePathElement = document.getElementById('filePath');
+  if (filePathElement) {
+    filePathElement.innerHTML = `
+      <span class="file-icon">${fileInfo.icon || '📄'}</span>
+      <span class="file-name">${filename}</span>
+      <span class="file-type">(${fileInfo.name})</span>
+    `;
+  }
+
+  // 更新标题
+  document.title = `${filename} - MarkEdit`;
+
+  // 更新状态栏信息
+  const statusBar = document.querySelector('.status-bar');
+  if (statusBar) {
+    const typeInfo = statusBar.querySelector('.file-type-info');
+    if (!typeInfo) {
+      const typeInfoElement = document.createElement('span');
+      typeInfoElement.className = 'file-type-info';
+      typeInfoElement.style.marginLeft = '10px';
+      typeInfoElement.style.color = '#666';
+      typeInfoElement.textContent = `类型: ${fileInfo.name}`;
+      statusBar.appendChild(typeInfoElement);
+    } else {
+      typeInfo.textContent = `类型: ${fileInfo.name}`;
+    }
+  }
+}
+
+/**
+ * 获取支持的文件类型过滤器
+ * @returns {Array} 文件过滤器数组
+ */
+function getSupportedFileFilters() {
+  const fileTypes = getAllFileTypes();
+  const filters = [];
+
+  // 添加所有支持的文件类型
+  fileTypes.forEach(type => {
+    filters.push({
+      name: `${type.name} 文件`,
+      extensions: type.extensions
+    });
+  });
+
+  // 添加"所有支持的文件"选项
+  const allExtensions = fileTypes.flatMap(type => type.extensions);
+  filters.unshift({
+    name: '所有支持的文件',
+    extensions: allExtensions
+  });
+
+  // 添加"所有文件"选项
+  filters.push({
+    name: '所有文件',
+    extensions: ['*']
+  });
+
+  return filters;
+}
+
+/**
+ * 获取默认的文件扩展名
+ * 根据当前编辑器内容智能推荐
+ * @param {string} content - 编辑器内容
+ * @param {string} currentPath - 当前文件路径（可选）
+ * @returns {string} 默认扩展名
+ */
+function getDefaultExtension(content, currentPath = null) {
+  // 如果有当前文件路径，使用其扩展名
+  if (currentPath) {
+    const fileInfo = getFileType(currentPath);
+    if (fileInfo.extensions && fileInfo.extensions.length > 0) {
+      return fileInfo.extensions[0];
+    }
+  }
+
+  // 根据内容分析推荐扩展名
+  const trimmedContent = content.trim();
+
+  // 检查是否是 JSON
+  if (trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) {
+    try {
+      JSON.parse(trimmedContent);
+      return 'json';
+    } catch (e) {
+      // 不是有效的 JSON
+    }
+  }
+
+  // 检查是否是 XML/HTML
+  if (trimmedContent.startsWith('<?xml') ||
+      trimmedContent.startsWith('<!DOCTYPE') ||
+      trimmedContent.match(/^<[a-zA-Z][^>]*>/)) {
+    if (trimmedContent.match(/<html|<head|<body/i)) {
+      return 'html';
+    }
+    return 'xml';
+  }
+
+  // 检查是否是 Markdown（包含标题、列表等）
+  if (content.match(/^#+\s|^-\s|^\d+\.\s|^\*\s|\*\*[^*]+\*\*|__[^_]+__/m)) {
+    return 'md';
+  }
+
+  // 检查是否是 Python 代码
+  if (content.includes('def ') || content.includes('import ') ||
+      content.includes('class ') || content.includes('print(')) {
+    return 'py';
+  }
+
+  // 检查是否是 JavaScript 代码
+  if (content.includes('function ') || content.includes('const ') ||
+      content.includes('let ') || content.includes('console.log')) {
+    return 'js';
+  }
+
+  // 检查是否是 Shell 脚本
+  if (content.startsWith('#!/bin/bash') || content.startsWith('#!/bin/sh') ||
+      content.includes('export ') || content.includes('echo ')) {
+    return 'sh';
+  }
+
+  // 默认使用 Markdown
+  return 'md';
+}
+
+/**
+ * 获取保存文件的默认文件名
+ * @param {string} currentPath - 当前文件路径（可选）
+ * @param {string} content - 编辑器内容（可选）
+ * @returns {Promise<string>} 默认文件名
+ */
+async function getDefaultSaveFilename(currentPath = null, content = '') {
+  if (currentPath) {
+    return await basename(currentPath);
+  }
+
+  const extension = getDefaultExtension(content, currentPath);
+  return `未命名文档.${extension}`;
 }
 
 console.log('✅ 应用代码加载完成');

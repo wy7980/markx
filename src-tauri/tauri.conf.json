@@ -52,9 +52,135 @@
         "mimeType": "text/markdown"
       },
       {
-        "ext": ["txt"],
+        "ext": ["txt", "text", "log"],
         "name": "Text Document",
         "description": "Plain Text Document",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["js", "jsx", "mjs", "cjs"],
+        "name": "JavaScript File",
+        "description": "JavaScript Code",
+        "role": "Editor",
+        "mimeType": "text/javascript"
+      },
+      {
+        "ext": ["ts", "tsx", "mts", "cts"],
+        "name": "TypeScript File",
+        "description": "TypeScript Code",
+        "role": "Editor",
+        "mimeType": "application/typescript"
+      },
+      {
+        "ext": ["py"],
+        "name": "Python File",
+        "description": "Python Script",
+        "role": "Editor",
+        "mimeType": "text/x-python"
+      },
+      {
+        "ext": ["java"],
+        "name": "Java File",
+        "description": "Java Source Code",
+        "role": "Editor",
+        "mimeType": "text/x-java"
+      },
+      {
+        "ext": ["c", "cpp", "cc", "cxx", "h", "hpp"],
+        "name": "C/C++ File",
+        "description": "C/C++ Source Code",
+        "role": "Editor",
+        "mimeType": "text/x-c"
+      },
+      {
+        "ext": ["html", "htm"],
+        "name": "HTML File",
+        "description": "HTML Document",
+        "role": "Editor",
+        "mimeType": "text/html"
+      },
+      {
+        "ext": ["css"],
+        "name": "CSS File",
+        "description": "CSS Stylesheet",
+        "role": "Editor",
+        "mimeType": "text/css"
+      },
+      {
+        "ext": ["json"],
+        "name": "JSON File",
+        "description": "JSON Data",
+        "role": "Editor",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": ["xml"],
+        "name": "XML File",
+        "description": "XML Document",
+        "role": "Editor",
+        "mimeType": "application/xml"
+      },
+      {
+        "ext": ["yml", "yaml"],
+        "name": "YAML File",
+        "description": "YAML Configuration",
+        "role": "Editor",
+        "mimeType": "text/yaml"
+      },
+      {
+        "ext": ["toml"],
+        "name": "TOML File",
+        "description": "TOML Configuration",
+        "role": "Editor",
+        "mimeType": "text/toml"
+      },
+      {
+        "ext": ["ini", "cfg", "conf"],
+        "name": "Configuration File",
+        "description": "INI Configuration",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["sh", "bash"],
+        "name": "Shell Script",
+        "description": "Shell Script",
+        "role": "Editor",
+        "mimeType": "text/x-shellscript"
+      },
+      {
+        "ext": ["ps1"],
+        "name": "PowerShell Script",
+        "description": "PowerShell Script",
+        "role": "Editor",
+        "mimeType": "text/x-powershell"
+      },
+      {
+        "ext": ["csv"],
+        "name": "CSV File",
+        "description": "Comma-Separated Values",
+        "role": "Editor",
+        "mimeType": "text/csv"
+      },
+      {
+        "ext": ["sql"],
+        "name": "SQL File",
+        "description": "SQL Script",
+        "role": "Editor",
+        "mimeType": "text/x-sql"
+      },
+      {
+        "ext": ["env"],
+        "name": "Environment File",
+        "description": "Environment Variables",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": ["gitignore"],
+        "name": "Git Ignore File",
+        "description": "Git Ignore Rules",
         "role": "Editor",
         "mimeType": "text/plain"
       }
