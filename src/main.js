@@ -141,6 +141,7 @@ function showContextMenu(x, y, path, name) {
   if (!menu) return;
 
   contextTargetFile = { path, name };
+  console.log('🔍 showContextMenu: 设置 contextTargetFile =', { path, name });
   menu.style.display = 'block';
 
   const rect = menu.getBoundingClientRect();
@@ -383,13 +384,62 @@ function setupEventListeners() {
 
   if (menuReveal) {
     menuReveal.addEventListener('click', async () => {
-      if (!contextTargetFile) return;
+      console.log('🔍 menuReveal clicked: contextTargetFile =', contextTargetFile);
+      if (!contextTargetFile) {
+        console.error('❌ menuReveal: contextTargetFile 为 null');
+        updateStatus('错误: 未选择文件');
+        return;
+      }
       try {
+        console.log('📂 正在获取目录:', contextTargetFile.path);
         const dir = await dirname(contextTargetFile.path);
-        await shellOpen(dir);
-        updateStatus('已在资源管理器中打开');
+        console.log('📁 目录路径:', dir);
+        console.log('🚀 正在调用 shellOpen...');
+        
+        // 尝试使用 Tauri shellOpen
+        try {
+          await shellOpen(dir);
+          console.log('✅ shellOpen 调用成功');
+          updateStatus('已在资源管理器中打开');
+        } catch (shellError) {
+          console.warn('⚠️  shellOpen 失败，尝试备用方法:', shellError);
+          
+          // 备用方法：如果是 Web 环境，尝试使用 window.open
+          if (typeof window !== 'undefined' && window.open) {
+            // 注意：这只有在应用在浏览器中运行时才有效
+            // 对于 file:// 协议可能无法工作
+            try {
+              // 尝试打开文件系统的父目录
+              // 对于桌面应用，这可能需要特殊处理
+              console.log('🔄 尝试备用打开方法');
+              updateStatus('正在尝试备用方法打开目录...');
+              
+              // 这里可以添加平台特定的备用方案
+              const isWindows = navigator.platform.toLowerCase().includes('win');
+              const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+              
+              if (isWindows) {
+                // Windows: 尝试使用 explorer
+                updateStatus('Windows: 请手动在资源管理器中打开');
+              } else if (isMac) {
+                // macOS: 尝试使用 open 命令
+                updateStatus('macOS: 请手动在 Finder 中打开');
+              } else {
+                // Linux/其他
+                updateStatus('请手动在文件管理器中打开');
+              }
+              
+              alert(`无法自动打开目录。请手动在文件管理器中打开:\n${dir}`);
+            } catch (fallbackError) {
+              console.error('❌ 备用方法也失败:', fallbackError);
+              alert(`打开目录失败:\n${shellError.message}\n\n目录路径: ${dir}`);
+            }
+          }
+        }
       } catch (e) {
-        alert('打开目录失败: ' + e);
+        console.error('❌ 打开目录失败:', e);
+        updateStatus('打开目录失败');
+        alert('打开目录失败: ' + e.message + '\n\n文件路径: ' + contextTargetFile.path);
       }
     });
   }
