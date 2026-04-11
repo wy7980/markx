@@ -29,6 +29,46 @@ let currentFilePath = null;
 let editorInstance = null;
 let contextTargetFile = null; // 用于存储当前右击的目标文件
 
+// 处理通过命令行打开的文件
+async function handleInitialFile() {
+  try {
+    const initialFile = await invoke('get_initial_file');
+    if (initialFile) {
+      console.log(`📂 通过命令行打开文件: ${initialFile}`);
+      await openFileFromPath(initialFile);
+    }
+  } catch (error) {
+    console.error('❌ 获取初始文件失败:', error);
+  }
+}
+
+// 从文件路径打开文件
+async function openFileFromPath(filePath) {
+  try {
+    console.log(`尝试读取文件: ${filePath}`);
+    const text = await readTextFile(filePath);
+    console.log(`成功读取文件内容长度: ${text.length}`);
+    
+    if (editorInstance) {
+      editorInstance.setValue(String(text || ''));
+    }
+    
+    currentFilePath = filePath;
+    document.getElementById('filePath').textContent = currentFilePath;
+    
+    // 更新侧边栏
+    const fileName = await basename(filePath);
+    const dirPath = await dirname(filePath);
+    await populateFileList(dirPath, fileName);
+    
+    updateStatus(`已打开: ${fileName}`);
+  } catch (error) {
+    console.error('❌ 打开文件失败:', error);
+    updateStatus(`打开文件失败: ${error}`);
+    alert(`无法打开文件: ${error}\n路径: ${filePath}`);
+  }
+}
+
 // 全局禁用浏览器默认右键菜单（侧边栏文件列表由自定义菜单接管）
 document.addEventListener('contextmenu', (e) => {
   // 仅允许编辑器内容区域（Vditor 输入区）保留右键（用于复制粘贴等）
@@ -89,6 +129,9 @@ function initializeApp() {
     console.log('🎉 编辑器初始化完成');
     updateStatus('应用已就绪');
     hideSplash();
+    
+    // 处理通过命令行打开的文件
+    handleInitialFile();
   }).catch(err => {
     console.error('❌ 编辑器初始化失败:', err);
     updateStatus('编辑器初始化失败');

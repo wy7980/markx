@@ -42,6 +42,29 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "description": "MarkEdit Markdown Document",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown Document",
+        "description": "MarkEdit Markdown Document",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      },
+      {
+        "ext": "txt",
+        "name": "Text Document",
+        "description": "Plain Text Document",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      }
     ]
   },
   "plugins": {
