@@ -449,6 +449,157 @@ body {
   --second-color: var(--text-secondary);
 }
 
+/* ============================================
+   macOS SVG 图标修复和增强
+   ============================================ */
+
+/* 通用SVG增强 - 确保所有图标都清晰可见 */
+.toolbar-btn svg {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+  /* 确保SVG占据空间 */
+  display: block;
+  margin: 0 auto;
+  opacity: 0.9;
+  transition: opacity 0.2s, stroke 0.2s;
+}
+
+/* 按钮悬停状态 */
+.toolbar-btn:hover svg {
+  opacity: 1;
+  stroke: white;
+}
+
+/* 按钮激活状态 */
+.toolbar-btn.active svg {
+  opacity: 1;
+  stroke: white;
+}
+
+/* macOS特定修复 - 更粗的线条和更好的对比度 */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .toolbar-btn svg {
+    stroke-width: 2.5 !important;
+  }
+  
+  /* 暗色主题下增强对比度 */
+  [data-theme="dark"] .toolbar-btn svg {
+    stroke: rgba(255, 255, 255, 0.95);
+    stroke-width: 2.8 !important;
+  }
+  
+  [data-theme="dark"] .toolbar-btn:hover svg {
+    stroke: white;
+  }
+}
+
+/* 主题切换图标特殊处理 */
+#btnTheme svg {
+  transition: opacity 0.3s ease;
+}
+
+/* 确保图标在状态栏中也清晰 */
+.status-item svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+}
+
+/* 侧边栏文件图标 */
+.sidebar-folder svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+}
+
+/* 新建文档按钮图标 */
+.btn-new svg {
+  width: 16px;
+  height: 16px;
+  stroke: white;
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 右键菜单图标 */
+.context-menu .menu-item svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+  transition: opacity 0.2s, stroke 0.2s;
+}
+
+.context-menu .menu-item:hover svg {
+  opacity: 1;
+  stroke: white;
+}
+
+/* 导出菜单图标 */
+.export-menu-item svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+  margin-right: 6px;
+}
+
+.export-menu-item:hover svg {
+  opacity: 1;
+  stroke: white;
+}
+
+/* 状态栏图标增强 */
+.status-icon {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+}
+
+/* 高DPI屏幕优化 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .toolbar-btn svg {
+    stroke-width: 2.2;
+  }
+  
+  .status-item svg,
+  .sidebar-folder svg,
+  .context-menu .menu-item svg,
+  .export-menu-item svg {
+    stroke-width: 2.2;
+  }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .sidebar {

@@ -12,6 +12,18 @@ import 'vditor/dist/index.css';
 
 console.log('🚀 MarkEdit 启动中...');
 
+// macOS检测和调试
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+if (isMac) {
+  document.documentElement.classList.add('is-mac');
+  console.log('✅ 检测到macOS系统，应用macOS特定修复');
+  console.log('📱 用户代理:', navigator.userAgent);
+}
+
+// 检查SVG支持
+const svgSupported = !!document.createElementNS && !!document.createElementNS('http://www.w3.org/2000/svg', 'svg').createSVGRect;
+console.log(`✅ SVG支持: ${svgSupported ? '是' : '否'}`);
+
 // 基础变量
 let currentFilePath = null;
 let editorInstance = null;
