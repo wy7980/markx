@@ -5,6 +5,17 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: '触发来源'
+        required: false
+        default: 'manual'
+        type: choice
+        options:
+          - manual
+          - api
+          - schedule
 
 env:
   NODE_VERSION: '22'
