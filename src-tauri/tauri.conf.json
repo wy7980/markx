@@ -45,21 +45,14 @@
     ],
     "fileAssociations": [
       {
-        "ext": "md",
+        "ext": ["md", "markdown"],
         "name": "Markdown Document",
         "description": "MarkEdit Markdown Document",
         "role": "Editor",
         "mimeType": "text/markdown"
       },
       {
-        "ext": "markdown",
-        "name": "Markdown Document",
-        "description": "MarkEdit Markdown Document",
-        "role": "Editor",
-        "mimeType": "text/markdown"
-      },
-      {
-        "ext": "txt",
+        "ext": ["txt"],
         "name": "Text Document",
         "description": "Plain Text Document",
         "role": "Editor",
