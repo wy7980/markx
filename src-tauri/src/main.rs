@@ -58,6 +58,58 @@ fn is_supported_file(path: &str) -> bool {
     false
 }
 
+// 解码 file:// URL
+
+fn decode_file_url(url: &str) -> String {
+
+    if !url.starts_with("file://") {
+
+        return url.to_string();
+
+    }
+
+    
+
+    let path = url.replace("file://", "");
+
+    
+
+    // 使用 urlencoding crate 解码
+
+    match urlencoding::decode(&path) {
+
+        Ok(decoded) => decoded.to_string(),
+
+        Err(_) => {
+
+            // 简单的回退解码
+
+            path.replace("%20", " ")
+
+                .replace("%2F", "/")
+
+                .replace("%5C", "\\")
+
+                .replace("%3A", ":")
+
+                .replace("%2B", "+")
+
+                .replace("%3F", "?")
+
+                .replace("%23", "#")
+
+                .replace("%25", "%")
+
+                .replace("%26", "&")
+
+                .replace("%3D", "=")
+
+        }
+
+    }
+
+}
+
 #[tauri::command]
 async fn close_splashscreen(app: tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
@@ -113,7 +165,49 @@ fn main() {
         println!("🍎 检测到macOS系统");
         println!("🍎 原始参数数量: {}", processed_args.len());
         
+        // 详细分析每个参数
+
+        for (i, arg) in processed_args.iter().enumerate() {
+            println!("  📝 分析参数[{}]: \"{}\"", i, arg);
+            
+            // 检查是否是 macOS 进程序列号
+
+            if arg.starts_with("-psn_") {
+                println!("    ⚠️  检测到进程序列号参数，跳过");
+                continue;
+            }
+            
+            // 检查是否是 file:// URL
+
+            if arg.starts_with("file://") {
+                println!("    🔍 检测到 file:// URL");
+                let decoded = decode_file_url(arg);
+                println!("    🔄 解码后: \"{}\"", decoded);
+                processed_args[i] = decoded;
+                continue;
+            }
+            
+            // 检查是否是绝对路径
+
+            if arg.starts_with('/') {
+                println!("    📂 检测到绝对路径");
+                continue;
+            }
+            
+            // 检查是否是相对路径（包含扩展名）
+
+            if arg.contains('.') {
+                println!("    📄 检测到可能为文件的参数");
+                continue;
+            }
+            
+            // 其他参数
+
+            println!("    ❓ 可能是系统参数");
+        }
+        
         // 过滤掉进程序列号参数
+
         let before_filter = processed_args.len();
         processed_args.retain(|arg| !arg.starts_with("-psn"));
         let after_filter = processed_args.len();
@@ -142,32 +236,55 @@ fn main() {
     println!("🎯 处理后的参数: {:?}", processed_args);
     println!("🎯 参数数量: {}", processed_args.len());
     
-    // 提取文件路径
+    // 提取文件路径 - 基于其他成功应用的研究
     let initial_file = if !processed_args.is_empty() {
-        // 策略1：直接查找支持的文件
-        if let Some(file) = processed_args.iter().find(|arg| {
-            let is_not_option = !arg.starts_with('-');
-            let is_supported = is_supported_file(arg);
-            is_not_option && is_supported
+        // 策略1：优先处理 file:// URL（macOS 常用）
+        if let Some(file) = processed_args.iter().find(|arg| arg.starts_with("file://")) {
+            let decoded = decode_file_url(file);
+            println!("✅ 策略1: 找到并解码 file:// URL: {} -> {}", file, decoded);
+            Some(decoded)
+        }
+        // 策略2：查找绝对路径文件
+        else if let Some(file) = processed_args.iter().find(|arg| {
+            arg.starts_with('/') && is_supported_file(arg)
         }) {
-            println!("✅ 策略1: 找到支持的文件: {}", file);
+            println!("✅ 策略2: 找到绝对路径文件: {}", file);
             Some(file.clone())
         }
-        // 策略2：查找任何看起来像文件路径的参数
-
+        // 策略3：查找支持的文件类型（任何路径）
         else if let Some(file) = processed_args.iter().find(|arg| {
-            // 不是选项参数，且包含路径分隔符或扩展名
-
+            !arg.starts_with('-') && is_supported_file(arg)
+        }) {
+            println!("✅ 策略3: 找到支持的文件类型: {}", file);
+            Some(file.clone())
+        }
+        // 策略4：查找任何看起来像文件路径的参数
+        else if let Some(file) = processed_args.iter().find(|arg| {
             !arg.starts_with('-') && (arg.contains('/') || arg.contains('\\') || arg.contains('.'))
         }) {
-            println!("✅ 策略2: 找到可能为文件的参数: {}", file);
+            println!("✅ 策略4: 找到可能为文件的参数: {}", file);
             Some(file.clone())
         }
-        // 策略3：第一个非选项参数
-
+        // 策略5：macOS 特定 - 检查环境变量
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(file_from_env) = std::env::var("TAURI_OPEN_FILE") {
+                if !file_from_env.is_empty() {
+                    println!("✅ 策略5: 从环境变量找到文件: {}", file_from_env);
+                    return Some(file_from_env);
+                }
+            }
+        }
+        // 策略6：第一个非选项参数
         else if let Some(file) = processed_args.iter().find(|arg| !arg.starts_with('-')) {
-            println!("✅ 策略3: 使用第一个非选项参数: {}", file);
-            Some(file.clone())
+            // 跳过程序名
+            if args.get(0).map(|s| s.as_str()) != Some(file.as_str()) {
+                println!("✅ 策略6: 使用第一个非选项参数: {}", file);
+                Some(file.clone())
+            } else {
+                println!("❌ 第一个非选项参数是程序名");
+                None
+            }
         } else {
             println!("❌ 所有策略都未找到文件路径");
             None
