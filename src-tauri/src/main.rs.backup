@@ -142,7 +142,7 @@ fn main() {
     println!("🎯 处理后的参数: {:?}", processed_args);
     println!("🎯 参数数量: {}", processed_args.len());
     
-    // 提取文件路径
+    // 尝试多种策略找到文件路径
     let initial_file = if !processed_args.is_empty() {
         // 策略1：直接查找支持的文件
         if let Some(file) = processed_args.iter().find(|arg| {
@@ -154,17 +154,14 @@ fn main() {
             Some(file.clone())
         }
         // 策略2：查找任何看起来像文件路径的参数
-
         else if let Some(file) = processed_args.iter().find(|arg| {
             // 不是选项参数，且包含路径分隔符或扩展名
-
             !arg.starts_with('-') && (arg.contains('/') || arg.contains('\\') || arg.contains('.'))
         }) {
             println!("✅ 策略2: 找到可能为文件的参数: {}", file);
             Some(file.clone())
         }
         // 策略3：第一个非选项参数
-
         else if let Some(file) = processed_args.iter().find(|arg| !arg.starts_with('-')) {
             println!("✅ 策略3: 使用第一个非选项参数: {}", file);
             Some(file.clone())
@@ -177,8 +174,27 @@ fn main() {
         None
     };
     
-    // 打印找到的文件路径信息
-
+    // 对找到的文件路径进行规范化处理
+    let initial_file = initial_file.map(|path| {
+        let mut normalized_path = path.clone();
+        
+        // 在macOS上，确保路径是绝对路径
+        #[cfg(target_os = "macos")]
+        {
+            if !normalized_path.starts_with('/') {
+                // 如果是相对路径，转换为绝对路径
+                if let Ok(current_dir) = std::env::current_dir() {
+                    let absolute_path = current_dir.join(&normalized_path);
+                    println!("  🔄 相对路径转绝对路径: {} -> {}", normalized_path, absolute_path.display());
+                    normalized_path = absolute_path.to_string_lossy().to_string();
+                }
+            }
+        }
+        
+        normalized_path
+    });
+    
+    // 调试日志
     if let Some(ref file) = initial_file {
         println!("✅ 找到文件路径: {}", file);
         println!("📂 通过命令行打开文件: {}", file);
@@ -189,7 +205,6 @@ fn main() {
         }
         
         // 检查文件是否存在
-
         if std::path::Path::new(file).exists() {
             println!("✅ 文件存在");
         } else {
@@ -197,34 +212,56 @@ fn main() {
         }
     } else {
         println!("ℹ️  没有找到支持的文件路径");
+        println!("🔍 详细分析:");
+        println!("  参数数量: {}", all_args.len());
+        println!("  程序名: {}", all_args.get(0).unwrap_or(&"未知".to_string()));
+        
+        for (i, arg) in all_args.iter().enumerate() {
+            println!("  参数 {}: {}", i, arg);
+            println!("    长度: {}", arg.len());
+            println!("    是否以-开头: {}", arg.starts_with('-'));
+            println!("    是否支持: {}", is_supported_file(arg));
+        }
+        
+        // 特别检查macOS常见情况
+        #[cfg(target_os = "macos")]
+        {
+            println!("🍎 macOS特定检查:");
+            let has_psn = args.iter().any(|arg| arg.starts_with("-psn"));
+            println!("  是否有-psn参数: {}", has_psn);
+            
+            let has_file_url = args.iter().any(|arg| arg.starts_with("file://"));
+            println!("  是否有file:// URL: {}", has_file_url);
+            
+            // 检查可能的文件路径模式
+            for arg in &args {
+                if !arg.starts_with('-') {
+                    println!("  非选项参数: {}", arg);
+                    if arg.contains('/') || arg.contains('\\') {
+                        println!("    包含路径分隔符，可能是文件路径");
+                    }
+                    if arg.contains('.') {
+                        println!("    包含点，可能有扩展名");
+                    }
+                }
+            }
+        }
     }
     
-    // 创建应用状态
     let app_state = AppState {
         initial_file: Mutex::new(initial_file),
     };
 
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![
-            close_splashscreen,
-            get_initial_file,
-            get_current_dir,
-        ])
+        .invoke_handler(tauri::generate_handler![close_splashscreen, get_initial_file, get_current_dir])
         .setup(|app| {
-            // 在macOS上，监听激活事件
-            #[cfg(target_os = "macos")]
+            #[cfg(debug_assertions)]
             {
-                app.handle().plugin(
-                    tauri_plugin_activation_policy::init(),
-                )?;
-            }
-            
-            // 如果有初始文件，在这里可以处理
-            // 但文件打开通常在前端 handleInitialFile 中处理
-
-            if let Some(window) = app.get_webview_window("main") {
-                if !window.is_devtools_open() {
+                if let Some(window) = app.get_webview_window("main") {
                     window.open_devtools();
                 }
             }
@@ -238,3 +275,4 @@ fn main() {
         }
     }
 }
+
