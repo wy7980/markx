@@ -50,24 +50,59 @@ async function handleInitialFile() {
       console.log(`📂 通过命令行打开文件: ${initialFile}`);
       console.log(`📁 文件路径类型: ${typeof initialFile}`);
       console.log(`📁 文件路径长度: ${initialFile.length}`);
+      console.log(`📁 文件路径原始值:`, initialFile);
 
       // 检查路径是否有效
       try {
         await openFileFromPath(initialFile);
       } catch (error) {
         console.error('❌ 打开文件失败:', error);
+        console.error('❌ 错误堆栈:', error.stack);
 
         // 尝试其他可能的路径格式
         if (initialFile.startsWith('file://')) {
           console.log('💡 尝试处理file:// URL格式...');
           const filePath = initialFile.replace('file://', '');
+          console.log(`💡 转换后路径: ${filePath}`);
           await openFileFromPath(filePath);
         } else if (!initialFile.includes('/') && !initialFile.includes('\\')) {
           console.log('💡 尝试在当前目录下查找文件...');
           // 可能是相对路径
           const currentDir = await invoke('get_current_dir');
           const fullPath = `${currentDir}/${initialFile}`;
+          console.log(`💡 完整路径: ${fullPath}`);
           await openFileFromPath(fullPath);
+        } else {
+          // 尝试其他可能的修复
+          console.log('💡 尝试其他修复方法...');
+          
+          // 1. 检查是否是URL编码的路径
+          if (initialFile.includes('%20')) {
+            const decodedPath = decodeURIComponent(initialFile);
+            console.log(`💡 URL解码后路径: ${decodedPath}`);
+            try {
+              await openFileFromPath(decodedPath);
+              return;
+            } catch (e) {
+              console.error('❌ URL解码后打开失败:', e);
+            }
+          }
+          
+          // 2. 检查路径分隔符
+          if (initialFile.includes('\\')) {
+            const unixPath = initialFile.replace(/\\/g, '/');
+            console.log(`💡 转换路径分隔符: ${unixPath}`);
+            try {
+              await openFileFromPath(unixPath);
+              return;
+            } catch (e) {
+              console.error('❌ 转换分隔符后打开失败:', e);
+            }
+          }
+          
+          // 显示错误给用户
+          updateStatus(`无法打开文件: ${error.message}`);
+          alert(`无法打开文件:\n${initialFile}\n\n错误: ${error.message}`);
         }
       }
     } else {
@@ -75,7 +110,8 @@ async function handleInitialFile() {
     }
   } catch (error) {
     console.error('❌ 获取初始文件失败:', error);
-    console.error('错误详情:', error.message);
+    console.error('❌ 错误详情:', error.message);
+    console.error('❌ 错误堆栈:', error.stack);
   }
 }
 

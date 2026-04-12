@@ -13,6 +13,51 @@ struct AppState {
     initial_file: Mutex<Option<String>>,
 }
 
+// 检查文件是否是我们支持的文件类型
+fn is_supported_file(path: &str) -> bool {
+    // 获取文件扩展名（小写）
+    let lowercase_path = path.to_lowercase();
+    
+    // 检查常见扩展名
+    let supported_extensions = [
+        // 纯文本文件
+        ".md", ".markdown", ".txt", ".text", ".log",
+        // 代码文件
+        ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
+        ".py", ".pyw", ".pyi", ".java", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp",
+        ".go", ".rs", ".rb", ".php", ".cs", ".scala", ".kt", ".swift",
+        // Web文件
+        ".html", ".htm", ".css", ".scss", ".sass", ".less", ".json", ".xml", ".xsd", ".xsl",
+        // 配置文件
+        ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties",
+        // 脚本文件
+        ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd",
+        // 数据文件
+        ".csv", ".tsv", ".sql",
+        // 环境文件
+        ".env",
+        // Git文件
+        ".gitignore",
+    ];
+    
+    // 检查扩展名
+    for ext in supported_extensions.iter() {
+        if lowercase_path.ends_with(ext) {
+            return true;
+        }
+    }
+    
+    // 检查特殊文件（无扩展名）
+    let special_files = ["Dockerfile", "Makefile", ".env"];
+    for special in special_files.iter() {
+        if path.ends_with(special) {
+            return true;
+        }
+    }
+    
+    false
+}
+
 #[tauri::command]
 async fn close_splashscreen(app: tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
@@ -62,15 +107,8 @@ fn main() {
     let initial_file = args.into_iter().find(|arg| {
         // 检查是否是文件路径
         // 1. 不是以-开头的参数
-        // 2. 可能是文件路径（包含/或\，或者有文件扩展名）
-        !arg.starts_with('-') && (
-            // 包含路径分隔符
-            arg.contains('/') || arg.contains('\\') ||
-            // 或者有支持的扩展名
-            arg.ends_with(".md") || arg.ends_with(".markdown") || 
-            arg.ends_with(".txt") || arg.ends_with(".MD") || 
-            arg.ends_with(".TXT")
-        )
+        // 2. 检查是否是我们支持的文件类型
+        !arg.starts_with('-') && is_supported_file(arg)
     }).map(|path| {
         // 规范化路径
         #[cfg(target_os = "macos")]
