@@ -151,6 +151,49 @@ async function handleInitialFile() {
     } else {
       console.log('ℹ️  没有通过命令行传入的文件');
       console.log('ℹ️  初始文件值为:', initialFile);
+      
+      // 尝试其他可能的文件获取方式
+      console.log('💡 尝试其他文件获取方式...');
+      
+      // 方法1: 检查URL参数（如果是Web环境）
+      if (typeof window !== 'undefined' && window.location) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const fileParam = urlParams.get('file');
+        if (fileParam) {
+          console.log(`💡 从URL参数获取文件: ${fileParam}`);
+          try {
+            await openFileFromPath(fileParam);
+            return;
+          } catch (error) {
+            console.error('❌ URL参数文件打开失败:', error);
+          }
+        }
+      }
+      
+      // 方法2: 检查localStorage（如果是之前打开的文件）
+      try {
+        const lastOpenedFile = localStorage.getItem('lastOpenedFile');
+        if (lastOpenedFile) {
+          console.log(`💡 从localStorage获取上次打开的文件: ${lastOpenedFile}`);
+          // 这里可以添加逻辑来重新打开上次的文件
+        }
+      } catch (e) {
+        console.log('ℹ️  无法访问localStorage:', e);
+      }
+      
+      // 方法3: 延迟检查（macOS有时会延迟传递参数）
+      setTimeout(async () => {
+        console.log('💡 延迟检查文件路径...');
+        try {
+          const delayedFile = await invoke('get_initial_file');
+          if (delayedFile && delayedFile !== initialFile) {
+            console.log(`💡 延迟后获取到文件: ${delayedFile}`);
+            await openFileFromPath(delayedFile);
+          }
+        } catch (error) {
+          console.log('ℹ️  延迟检查未获取到文件');
+        }
+      }, 1000);
     }
   } catch (error) {
     console.error('❌ 获取初始文件失败:', error);
