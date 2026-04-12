@@ -212,12 +212,11 @@ fn main() {
             get_current_dir,
         ])
         .setup(|app| {
-            // 在macOS上，监听激活事件
+            // 在macOS上，我们可以在这里添加macOS特定的初始化
             #[cfg(target_os = "macos")]
             {
-                app.handle().plugin(
-                    tauri_plugin_activation_policy::init(),
-                )?;
+                println!("🍎 macOS应用启动完成");
+                // macOS特定初始化代码可以放在这里
             }
             
             // 如果有初始文件，在这里可以处理
