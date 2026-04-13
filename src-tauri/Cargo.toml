@@ -1,6 +1,6 @@
 [package]
 name = "markedit"
-version = "1.0.0"
+version = "1.0.1"
 description = "轻量级 Markdown 编辑器"
 authors = ["wy7980"]
 license = "MIT"

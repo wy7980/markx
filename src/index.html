@@ -4,10 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarkEdit</title>
-  <link rel="stylesheet" href="https://unpkg.com/vditor@3.10.4/dist/index.css" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
+  <!-- Splash Screen - 纯 CSS 实现，无需等待 JS 加载 -->
+  <div id="splashScreen" class="splash-screen">
+    <div class="splash-content">
+      <div class="splash-logo">M</div>
+      <div class="splash-title">MarkEdit</div>
+      <div class="splash-spinner"></div>
+      <div class="splash-text">正在加载编辑器...</div>
+    </div>
+  </div>
+
   <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -16,6 +25,12 @@
           <div class="logo-icon">M</div>
           <span>MarkEdit</span>
         </div>
+      </div>
+      <div class="sidebar-folder" id="sidebarFolder" style="display: none; padding: 10px 15px; font-size: 13px; color: var(--text-secondary, #666); border-bottom: 1px solid var(--border-color, #eee); box-sizing: border-box;">
+        <svg fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" viewBox="0 0 24 24" style="vertical-align: middle; margin-right: 5px;">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span id="folderName" style="vertical-align: middle; font-weight: 500;">文件夹</span>
       </div>
       <div class="file-list" id="fileList">
         <!-- 文件列表动态生成 -->
@@ -56,21 +71,30 @@
             <polyline points="7 3 7 8 15 8"></polyline>
           </svg>
         </button>
-        <button class="toolbar-btn" id="btnExport" title="导出">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-        </button>
-
-        <div class="toolbar-divider"></div>
-
-        <select class="toolbar-select" id="selectMode" title="编辑模式">
-          <option value="code">源码</option>
-          <option value="read">阅读</option>
-          <option value="wysiwyg">所见即所得</option>
-        </select>
+        <div class="export-wrapper">
+          <button class="toolbar-btn" id="btnExport" title="导出">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </button>
+          <div class="export-menu" id="exportMenu" style="display: none;">
+            <div class="export-menu-item" id="exportMd">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              导出 Markdown
+            </div>
+            <div class="export-menu-item" id="exportHtml">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              导出 HTML
+            </div>
+            <div class="export-menu-separator"></div>
+            <div class="export-menu-item" id="exportPdf">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              导出 PDF
+            </div>
+          </div>
+        </div>
 
         <div class="toolbar-spacer"></div>
 
@@ -85,7 +109,7 @@
               <circle cx="4" cy="18" r="1"></circle>
             </svg>
           </button>
-          <button class="theme-toggle" id="btnTheme" title="切换主题">
+          <button class="toolbar-btn" id="btnTheme" title="切换主题">
             <svg id="sunIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="5"></circle>
               <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -97,7 +121,7 @@
               <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
               <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
             </svg>
-            <svg id="moonIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+            <svg id="moonIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
             </svg>
           </button>
@@ -109,21 +133,67 @@
         <div class="editor-wrapper">
           <div id="vditor-container"></div>
         </div>
-
-
+        
+        <!-- Outline Container -->
+        <div class="vditor-outline" id="vditorOutline"></div>
       </div>
 
       <!-- Status Bar -->
       <div class="status-bar">
-        <span id="statusText">就绪</span>
-        <span id="filePath">未保存</span>
-        <span class="status-item">字数: <strong id="wordCount">0</strong></span>
-        <span class="status-item">段落: <strong id="paraCount">0</strong></span>
+        <div class="status-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="status-icon">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          <span id="filePath" class="status-path" title="当前文件路径">未保存</span>
+          <span class="status-divider">|</span>
+          <span id="statusText" class="status-msg">就绪</span>
+        </div>
+        
+        <div class="status-right">
+          <span class="status-item" title="文档字数">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="4" y1="7" x2="20" y2="7"></line>
+              <line x1="4" y1="13" x2="20" y2="13"></line>
+              <line x1="4" y1="19" x2="12" y2="19"></line>
+            </svg>
+            字数: <strong id="wordCount">0</strong>
+          </span>
+          <span class="status-item" title="文档段落数">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="21" y1="10" x2="3" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="21" y1="18" x2="3" y2="18"></line>
+            </svg>
+            段落: <strong id="paraCount">0</strong>
+          </span>
+        </div>
       </div>
     </main>
   </div>
 
-  <script src="https://unpkg.com/vditor@3.10.9/dist/index.min.js"></script>
+  <!-- Context Menu -->
+  <div id="contextMenu" class="context-menu" style="display: none;">
+    <div class="menu-item" id="menuRename">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+      重命名
+    </div>
+    <div class="menu-item" id="menuCopyPath">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+      复制物理路径
+    </div>
+    <div class="menu-item" id="menuReveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      在资源管理器中显示
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item danger" id="menuDelete">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+      永久删除
+    </div>
+  </div>
+
   <script type="module" src="./main.js"></script>
 </body>
 </html>

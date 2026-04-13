@@ -1,6 +1,6 @@
 {
   "name": "markedit-tauri",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "轻量级 Markdown 编辑器 - Tauri 桌面应用",
   "packageManager": "pnpm@10.23.0",
   "scripts": {

@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MarkEdit WiX Registry Fragment
+  为 MSI 安装包注册文件关联到 Windows 右键"打开方式"菜单。
+  Tauri 的默认 WiX 模板不会自动写入 OpenWithProgids，需通过此 fragment 手动完成。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="MarkEditFileAssociations" Directory="TARGETDIR">
+
+      <Component Id="FileAssoc_md" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.md\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_markdown" Guid="B2C3D4E5-F6A7-8901-BCDE-F01234567891">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.markdown\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_txt" Guid="C3D4E5F6-A7B8-9012-CDEF-012345678902">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.txt\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_log" Guid="D4E5F6A7-B8C9-0123-DEF0-123456789013">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.log\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_json" Guid="E5F6A7B8-C9D0-1234-EF01-234567890124">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.json\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_yaml" Guid="F6A7B8C9-D0E1-2345-F012-345678901235">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.yaml\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_yml" Guid="A7B8C9D0-E1F2-3456-0123-456789012346">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.yml\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_toml" Guid="B8C9D0E1-F2A3-4567-1234-567890123457">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.toml\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_xml" Guid="C9D0E1F2-A3B4-5678-2345-678901234568">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.xml\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_html" Guid="D0E1F2A3-B4C5-6789-3456-789012345679">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.html\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_css" Guid="E1F2A3B4-C5D6-7890-4567-890123456780">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.css\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_js" Guid="F2A3B4C5-D6E7-8901-5678-901234567891">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.js\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_ts" Guid="A3B4C5D6-E7F8-9012-6789-012345678902">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.ts\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_py" Guid="B4C5D6E7-F8A9-0123-7890-123456789013">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.py\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_rs" Guid="C5D6E7F8-A9B0-1234-8901-234567890124">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.rs\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_go" Guid="D6E7F8A9-B0C1-2345-9012-345678901235">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.go\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_sql" Guid="E7F8A9B0-C1D2-3456-0123-456789012346">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.sql\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_csv" Guid="F8A9B0C1-D2E3-4567-1234-567890123457">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.csv\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_sh" Guid="A9B0C1D2-E3F4-5678-2345-678901234568">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.sh\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="FileAssoc_ps1" Guid="B0C1D2E3-F4A5-6789-3456-789012345679">
+        <RegistryKey Root="HKCU" Key="Software\Classes\.ps1\OpenWithProgids" Action="createAndRemoveOnUninstall">
+          <RegistryValue Type="string" Name="MarkEdit.md" Value="" />
+        </RegistryKey>
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+</Wix>

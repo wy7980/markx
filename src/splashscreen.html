@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 100vw;
+      height: 100vh;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .splash {
+      text-align: center;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      background: #007acc;
+      color: white;
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.4rem;
+      font-weight: bold;
+      margin-bottom: 1.2rem;
+      animation: pulse 2s ease-in-out infinite;
+      box-shadow: 0 8px 32px rgba(0, 122, 204, 0.3);
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 8px 32px rgba(0, 122, 204, 0.3); }
+      50% { transform: scale(1.05); box-shadow: 0 8px 40px rgba(0, 122, 204, 0.5); }
+    }
+    .title {
+      color: #e0e0e0;
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      margin-bottom: 2rem;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #007acc;
+      border-radius: 50%;
+      margin: 0 auto 1rem;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hint {
+      color: rgba(255, 255, 255, 0.35);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <div class="logo">M</div>
+    <div class="title">MarkEdit</div>
+    <div class="spinner"></div>
+    <div class="hint">正在加载编辑器...</div>
+  </div>
+</body>
+</html>
