@@ -74,29 +74,20 @@ fn main() {
     // 收集命令行参数
     let args: Vec<String> = std::env::args().collect();
     
-    println!("🔍 命令行参数分析:");
-    for (i, arg) in args.iter().enumerate() {
-        println!("  参数[{}]: {}", i, arg);
-    }
-    
     // 提取文件路径
     let initial_file = if args.len() > 1 {
         let mut found_file: Option<String> = None;
         
         // 跳过第一个参数（程序名）
         for arg in &args[1..] {
-            println!("  检查参数: {}", arg);
-            
             // 跳过选项参数
             if arg.starts_with('-') {
-                println!("    跳过选项参数");
                 continue;
             }
             
             // 处理 file:// URL
             let mut file_path = arg.clone();
             if arg.starts_with("file://") {
-                println!("    处理 file:// URL");
                 file_path = arg.replace("file://", "")
                     .replace("%20", " ")
                     .replace("%2F", "/")
@@ -105,11 +96,9 @@ fn main() {
             
             // 检查是否是我们支持的文件
             if is_supported_file(&file_path) {
-                println!("    ✅ 找到支持的文件: {}", file_path);
                 found_file = Some(file_path);
                 break;
             } else if file_path.contains('/') || file_path.contains('\\') || file_path.contains('.') {
-                println!("    ⚠️  找到可能为文件的参数: {}", file_path);
                 found_file = Some(file_path);
                 break;
             }
@@ -117,16 +106,8 @@ fn main() {
         
         found_file
     } else {
-        println!("❌ 没有命令行参数");
         None
     };
-    
-    // 打印结果
-    if let Some(ref file) = initial_file {
-        println!("✅ 找到文件路径: {}", file);
-    } else {
-        println!("ℹ️  未找到文件路径");
-    }
     
     // 创建应用状态
     let app_state = AppState {
@@ -143,12 +124,7 @@ fn main() {
             get_initial_file,
             get_current_dir,
         ])
-        .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
-                if !window.is_devtools_open() {
-                    window.open_devtools();
-                }
-            }
+        .setup(|_app| {
             Ok(())
         })
         .run(tauri::generate_context!());

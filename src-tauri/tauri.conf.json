@@ -43,6 +43,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["registry.wxs"],
+        "componentGroupRefs": ["MarkEditFileAssociations"]
+      }
+    },
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],

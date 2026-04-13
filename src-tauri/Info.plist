@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS Info.plist 补充文件
+  解决 Finder 右键"打开方式"中不显示 MarkEdit 的问题。
+
+  Tauri v2 的 fileAssociations 配置只生成基本的 CFBundleDocumentTypes，
+  但缺少以下两个关键部分：
+  1. LSHandlerRank = "Alternate"（让系统知道本 app 可处理这些类型）
+  2. UTImportedTypeDeclarations（声明导入的系统 UTI，使 Launch Services 能正确识别）
+
+  此文件会被 Tauri 合并到最终 app bundle 的 Info.plist 中。
+-->
+<plist version="1.0">
+<dict>
+
+  <!-- ============================================================
+       CFBundleDocumentTypes
+       声明应用支持的文档类型，macOS Finder 右键"打开方式"依赖此配置
+       LSHandlerRank 必须设置，否则 Launch Services 不会将 app 加入候选列表
+       ============================================================ -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+
+    <!-- Markdown 文件 -->
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Markdown Document</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>md</string>
+        <string>markdown</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>net.daringfireball.markdown</string>
+        <string>public.plain-text</string>
+      </array>
+    </dict>
+
+    <!-- 纯文本文件 -->
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Plain Text Document</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>txt</string>
+        <string>text</string>
+        <string>log</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.plain-text</string>
+        <string>public.text</string>
+      </array>
+    </dict>
+
+    <!-- 源代码文件 -->
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Source Code</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>js</string>
+        <string>jsx</string>
+        <string>mjs</string>
+        <string>cjs</string>
+        <string>ts</string>
+        <string>tsx</string>
+        <string>py</string>
+        <string>rb</string>
+        <string>go</string>
+        <string>rs</string>
+        <string>java</string>
+        <string>c</string>
+        <string>cpp</string>
+        <string>cc</string>
+        <string>h</string>
+        <string>hpp</string>
+        <string>cs</string>
+        <string>php</string>
+        <string>swift</string>
+        <string>kt</string>
+        <string>sh</string>
+        <string>bash</string>
+        <string>zsh</string>
+        <string>sql</string>
+        <string>ps1</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.source-code</string>
+        <string>public.plain-text</string>
+      </array>
+    </dict>
+
+    <!-- 数据/配置文件 -->
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Data &amp; Config File</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>json</string>
+        <string>xml</string>
+        <string>yaml</string>
+        <string>yml</string>
+        <string>toml</string>
+        <string>ini</string>
+        <string>cfg</string>
+        <string>conf</string>
+        <string>csv</string>
+        <string>env</string>
+        <string>html</string>
+        <string>htm</string>
+        <string>css</string>
+        <string>scss</string>
+        <string>less</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.plain-text</string>
+      </array>
+    </dict>
+
+  </array>
+
+  <!-- ============================================================
+       UTImportedTypeDeclarations
+       声明应用"导入"（理解但不拥有）的系统 UTI。
+       关键：声明 net.daringfireball.markdown，使 Launch Services 正确
+       将 MarkEdit 关联到 .md 文件的处理程序列表。
+       ============================================================ -->
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>net.daringfireball.markdown</string>
+      <key>UTTypeDescription</key>
+      <string>Markdown Document</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.plain-text</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>md</string>
+          <string>markdown</string>
+        </array>
+        <key>public.mime-type</key>
+        <array>
+          <string>text/markdown</string>
+          <string>text/x-markdown</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+
+</dict>
+</plist>
