@@ -79,7 +79,7 @@ jobs:
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i 's/"version": "[^"]*"/"version": "'$VERSION'"/' src-tauri/tauri.conf.json
           echo "已更新版本号为：$VERSION"
           cat src-tauri/tauri.conf.json | grep version
 
@@ -198,7 +198,7 @@ jobs:
       - name: 更新 Tauri 配置版本号
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i '' 's/"version": "[^"]*"/"version": "'$VERSION'"/' src-tauri/tauri.conf.json
           echo "已更新版本号为：$VERSION"
           cat src-tauri/tauri.conf.json | grep version
 

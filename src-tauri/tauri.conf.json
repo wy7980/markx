@@ -1,6 +1,6 @@
 {
   "productName": "MarkEdit",
-  "version": "${CI_VERSION:-1.0.2}",
+  "version": "1.0.2",
   "identifier": "com.markedit.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
