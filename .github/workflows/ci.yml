@@ -122,6 +122,10 @@ jobs:
         run: ls -la dist/
         shell: bash
 
+      - name: 清理旧产物
+        shell: bash
+        run: rm -rf src-tauri/target/*/release/bundle || true
+
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
@@ -244,6 +248,9 @@ jobs:
 
       - name: 验证前端构建
         run: ls -la dist/
+
+      - name: 清理旧产物
+        run: rm -rf src-tauri/target/*/release/bundle || true
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
