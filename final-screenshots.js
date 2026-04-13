@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
   });
   const page = await context.newPage();
   
-  await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+  await page.goto('http://localhost:5174/', { waitUntil: 'networkidle' });
   await page.waitForSelector('.vditor', { timeout: 15000 });
   await page.waitForTimeout(1000);
   
@@ -50,10 +50,10 @@ const { chromium } = require('playwright');
   await page.screenshot({ path: 'test-results/final/05-dark-theme.png' });
   
   // 测试编辑模式切换
-  console.log('🔄 6. 分屏预览模式...');
-  await page.selectOption('#selectMode', 'sv');
+  console.log('🔄 6. 阅读模式...');
+  await page.selectOption('#selectMode', 'read');
   await page.waitForTimeout(1000);
-  await page.screenshot({ path: 'test-results/final/06-split-view.png' });
+  await page.screenshot({ path: 'test-results/final/06-read-view.png' });
   
   // 测试侧边栏切换
   console.log('📂 7. 侧边栏折叠...');

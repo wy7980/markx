@@ -60,6 +60,28 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 获取 Git 标签版本号
+        id: version
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="1.0.2"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "使用版本号：$VERSION"
+
+      - name: 更新 Tauri 配置版本号
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          echo "已更新版本号为：$VERSION"
+          cat src-tauri/tauri.conf.json | grep version
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
@@ -159,6 +181,26 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 获取 Git 标签版本号
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="1.0.2"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "使用版本号：$VERSION"
+
+      - name: 更新 Tauri 配置版本号
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i '' "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          echo "已更新版本号为：$VERSION"
+          cat src-tauri/tauri.conf.json | grep version
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v4
