@@ -539,6 +539,8 @@ function initVditor() {
       after: () => {
         console.log('✅ Vditor 编辑器已加载');
         updateWordCount();
+        // Vditor 渲染完成后才能找到 .vditor-outline，在此时初始化拖动条
+        initOutlineResizer();
         resolve();
       }
     });
@@ -991,8 +993,6 @@ function setupEventListeners() {
     });
   }
 
-  // 初始化大纲宽度拖动
-  initOutlineResizer();
 }
 
 /**
