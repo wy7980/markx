@@ -387,17 +387,19 @@ body {
   border-color: var(--accent-color);
 }
 
-/* 解决编辑器大屏留白问题 */
+/* 编辑器内容区宽度控制：最大可读宽度居中，小屏自动收缩 */
 .vditor-reset {
-  max-width: 100% !important; /* 覆盖 Vditor 默认的 800px 左右限制 */
-  padding-left: 10% !important;
-  padding-right: 10% !important;
-  margin: 0 auto !important;
+  max-width: 900px !important;   /* 超过此宽度后居中显示，提升可读性 */
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 2rem !important; /* 固定内边距，不随屏幕大小变化 */
+  padding-right: 2rem !important;
+  box-sizing: border-box !important;
 }
 
-/* 如果是源码模式，允许更宽 */
+/* 源码/IR 模式不额外限制 */
 .vditor-sv .vditor-reset, .vditor-ir .vditor-reset {
-  max-width: 1200px !important; 
+  max-width: 900px !important;
 }
 
 /* Context Menu */
