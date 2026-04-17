@@ -40,6 +40,11 @@ let currentFilePath = null;
 let editorInstance = null;
 let contextTargetFile = null; // 用于存储当前右击的目标文件
 
+// 目录监视状态（轮询自动刷新）
+let currentWatchedDir = null;     // 当前被监视的目录路径
+let dirWatchInterval = null;      // 轮询定时器 ID
+let lastFileSnapshot = new Set(); // 上次文件列表快照（文件名集合）
+
 // 处理通过命令行打开的文件
 async function handleInitialFile() {
   try {
@@ -235,6 +240,7 @@ async function openFileFromPath(filePath) {
     // 更新侧边栏
     const dirPath = await dirname(filePath);
     await populateFileList(dirPath, fileName);
+    startDirWatch(dirPath);
 
     updateStatus(`已打开: ${fileName} (${fileInfo.name})`);
   } catch (error) {
@@ -410,6 +416,83 @@ async function populateFileList(dirPath, activeFileName) {
   }
 }
 
+// ── 目录变化监视（轮询）──────────────────────────────────────
+
+/**
+ * 停止当前目录监视
+ */
+function stopDirWatch() {
+  if (dirWatchInterval !== null) {
+    clearInterval(dirWatchInterval);
+    dirWatchInterval = null;
+  }
+  currentWatchedDir = null;
+  lastFileSnapshot = new Set();
+}
+
+/**
+ * 启动对 dirPath 的轮询监视（每 2 秒检查一次文件列表变化）。
+ * 若已在监视同一目录则不重新创建定时器。
+ * @param {string} dirPath 要监视的目录绝对路径
+ */
+async function startDirWatch(dirPath) {
+  if (!dirPath) { stopDirWatch(); return; }
+
+  // 同目录无需重置定时器
+  if (dirPath === currentWatchedDir && dirWatchInterval !== null) return;
+
+  // 先停止旧的监视
+  if (dirWatchInterval !== null) clearInterval(dirWatchInterval);
+
+  currentWatchedDir = dirPath;
+
+  // 初始化快照
+  try {
+    const entries = await readDir(dirPath);
+    lastFileSnapshot = new Set(entries.filter(e => !e.isDirectory).map(e => e.name));
+  } catch (_) {
+    lastFileSnapshot = new Set();
+  }
+
+  const supportedExtensions = getSupportedExtensions();
+  const specialFiles = new Set(['Dockerfile', 'Makefile', 'dockerfile', 'makefile']);
+
+  const isSupportedFile = (name) => {
+    const parts = name.split('.');
+    if (parts.length < 2) return specialFiles.has(name);
+    return supportedExtensions.includes(parts[parts.length - 1].toLowerCase());
+  };
+
+  dirWatchInterval = setInterval(async () => {
+    // 不再监视同一目录时自动停止
+    if (currentWatchedDir !== dirPath) { clearInterval(dirWatchInterval); dirWatchInterval = null; return; }
+
+    try {
+      const entries = await readDir(dirPath);
+      const currentFiles = new Set(
+        entries.filter(e => !e.isDirectory && isSupportedFile(e.name)).map(e => e.name)
+      );
+
+      // 对比快照
+      const changed =
+        currentFiles.size !== lastFileSnapshot.size ||
+        [...currentFiles].some(name => !lastFileSnapshot.has(name)) ||
+        [...lastFileSnapshot].some(name => !currentFiles.has(name));
+
+      if (changed) {
+        lastFileSnapshot = currentFiles;
+        const activeFileName = currentFilePath ? await basename(currentFilePath) : null;
+        await populateFileList(dirPath, activeFileName);
+        console.log('🔄 侧边栏文件列表已自动刷新');
+      }
+    } catch (_) {
+      // 目录不可访问时静默忽略
+    }
+  }, 2000);
+}
+
+// ── 以上为目录监视逻辑 ──────────────────────────────────────
+
 // 初始化Vditor编辑器
 function initVditor() {
   return new Promise((resolve) => {
@@ -465,6 +548,27 @@ function initVditor() {
 // 设置事件监听器
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
+
+  // 手动刷新文件夹按钮
+  const btnRefreshFolder = document.getElementById('btnRefreshFolder');
+  if (btnRefreshFolder) {
+    btnRefreshFolder.addEventListener('click', async () => {
+      if (!currentWatchedDir) return;
+      btnRefreshFolder.classList.add('spinning');
+      try {
+        const activeFileName = currentFilePath ? await basename(currentFilePath) : null;
+        await populateFileList(currentWatchedDir, activeFileName);
+        // 刷新快照
+        const entries = await readDir(currentWatchedDir);
+        lastFileSnapshot = new Set(entries.filter(e => !e.isDirectory).map(e => e.name));
+        updateStatus('文件列表已刷新');
+      } catch (e) {
+        console.error('刷新失败:', e);
+      } finally {
+        setTimeout(() => btnRefreshFolder.classList.remove('spinning'), 600);
+      }
+    });
+  }
 
   // 右键菜单动作事件绑定
   const menuRename = document.getElementById('menuRename');
@@ -635,6 +739,7 @@ function setupEventListeners() {
 
           // 更新侧边栏文件列表
           await populateFileList(dirPath, fileName);
+          startDirWatch(dirPath);
         }
       } catch (error) {
         console.error('❌ 打开文件失败:', error);
@@ -699,6 +804,7 @@ function setupEventListeners() {
 
             // 更新左侧列表
             await populateFileList(dirPath, fileName);
+            startDirWatch(dirPath);
           }
         }
       } catch (error) {
@@ -865,8 +971,18 @@ function setupEventListeners() {
     btnOutline.addEventListener('click', () => {
       console.log('📑 触发切换大纲');
       const outlineEl = document.querySelector('.vditor-outline');
+      const resizerEl = document.getElementById('outlineResizer');
       if (outlineEl) {
-        outlineEl.style.display = (outlineEl.style.display === 'none' || outlineEl.style.display === '') ? 'block' : 'none';
+        const isHidden = (outlineEl.style.display === 'none' || outlineEl.style.display === '');
+        const nextDisplay = isHidden ? 'block' : 'none';
+        outlineEl.style.display = nextDisplay;
+        if (resizerEl) resizerEl.style.display = nextDisplay;
+        
+        // 如果显示，确保宽度正确（恢复最后一次记录的宽度）
+        if (nextDisplay === 'block') {
+          const savedWidth = localStorage.getItem('markedit-outline-width') || '260px';
+          outlineEl.style.width = savedWidth;
+        }
       } else {
         // Fallback to native toggle
         const nativeOutlineBtn = document.querySelector('.vditor-toolbar [data-type="outline"]');
@@ -874,6 +990,69 @@ function setupEventListeners() {
       }
     });
   }
+
+  // 初始化大纲宽度拖动
+  initOutlineResizer();
+}
+
+/**
+ * 初始化大纲栏宽度调节功能
+ */
+function initOutlineResizer() {
+  const outline = document.querySelector('.vditor-outline');
+  const container = document.querySelector('.vditor-content') || document.querySelector('.editor-container');
+  
+  if (!outline || !container) return;
+
+  // 动态创建并注入拖动条，放置在原生排版中的大纲左侧
+  let resizer = document.getElementById('outlineResizer');
+  if (!resizer) {
+    resizer = document.createElement('div');
+    resizer.id = 'outlineResizer';
+    resizer.className = 'outline-resizer';
+    if (outline.parentNode) {
+      outline.parentNode.insertBefore(resizer, outline);
+    }
+  }
+
+  // 初始加载保存的宽度
+  const savedWidth = localStorage.getItem('markedit-outline-width');
+  if (savedWidth) {
+    outline.style.width = savedWidth;
+  }
+
+  let isDragging = false;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    resizer.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none'; // 防止拖动时选中文字
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+
+    // 大纲在右侧，其宽度即为外层容器右边缘坐标与鼠标当前坐标差值
+    const containerRect = container.getBoundingClientRect();
+    const newWidth = containerRect.right - e.clientX;
+
+    // 限制范围
+    if (newWidth > 150 && newWidth < 600) {
+      const widthStr = `${newWidth}px`;
+      outline.style.width = widthStr;
+      localStorage.setItem('markedit-outline-width', widthStr);
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      resizer.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
 }
 
 // 切换主题

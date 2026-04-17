@@ -343,8 +343,9 @@ body {
 .editor-container {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row; /* 横向排列，编辑区在右，大纲在右 (或左) */
   overflow: hidden;
+  position: relative;
 }
 
 .editor-wrapper {
@@ -360,7 +361,43 @@ body {
 
 .vditor-outline {
   display: none; /* 默认隐藏，由大纲按钮点击触发显示 */
-  max-width: 280px;
+  width: 260px;  /* 改用 width，方便 JS 动态修改 */
+  min-width: 150px;
+  max-width: 600px;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+
+/* 大纲拖动条 */
+.outline-resizer {
+  width: 6px;
+  cursor: col-resize;
+  background: var(--bg-secondary); /* 给予一个微弱背景色使其可见 */
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  transition: background 0.2s;
+  z-index: 10;
+  display: none; /* 随大纲同步显示 */
+  margin-left: -3px; /* 负边距使其居中覆盖在边框上 */
+}
+
+.outline-resizer:hover, .outline-resizer.active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+/* 解决编辑器大屏留白问题 */
+.vditor-reset {
+  max-width: 100% !important; /* 覆盖 Vditor 默认的 800px 左右限制 */
+  padding-left: 10% !important;
+  padding-right: 10% !important;
+  margin: 0 auto !important;
+}
+
+/* 如果是源码模式，允许更宽 */
+.vditor-sv .vditor-reset, .vditor-ir .vditor-reset {
+  max-width: 1200px !important; 
 }
 
 /* Context Menu */
@@ -499,7 +536,6 @@ body {
 .toolbar-btn svg {
   width: 20px;
   height: 20px;
-  vertical-align: middle;
   stroke: currentColor;
   fill: none;
   stroke-width: 2;
@@ -569,6 +605,36 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.8;
+}
+
+/* 侧边栏刷新按钮 */
+.btn-refresh-folder {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  line-height: 0;
+}
+
+.btn-refresh-folder:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.btn-refresh-folder.spinning svg {
+  animation: folderRefreshSpin 0.6s linear infinite;
+}
+
+@keyframes folderRefreshSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 /* 新建文档按钮图标 */
