@@ -44,6 +44,44 @@ fn is_supported_file(path: &str) -> bool {
     false
 }
 
+fn normalize_file_arg(arg: &str) -> String {
+    if arg.starts_with("file://") {
+        let mut file_path = arg.replace("file://", "");
+
+        if let Some(stripped) = file_path.strip_prefix("localhost/") {
+            file_path = format!("/{}", stripped);
+        }
+
+        return file_path
+            .replace("%20", " ")
+            .replace("%2F", "/")
+            .replace("%2f", "/")
+            .replace("%5C", "\\")
+            .replace("%5c", "\\");
+    }
+
+    arg.to_string()
+}
+
+fn looks_like_file_path(path: &str) -> bool {
+    is_supported_file(path) || path.contains('/') || path.contains('\\') || path.contains('.')
+}
+
+fn extract_file_from_args(args: &[String]) -> Option<String> {
+    for arg in args {
+        if arg.starts_with('-') {
+            continue;
+        }
+
+        let file_path = normalize_file_arg(arg);
+        if looks_like_file_path(&file_path) {
+            return Some(file_path);
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 async fn close_splashscreen(app: tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
@@ -73,39 +111,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // 提取文件路径
-    let initial_file = if args.len() > 1 {
-        let mut found_file: Option<String> = None;
-
-        // 跳过第一个参数（程序名）
-        for arg in &args[1..] {
-            // 跳过选项参数
-            if arg.starts_with('-') {
-                continue;
-            }
-
-            // 处理 file:// URL
-            let mut file_path = arg.clone();
-            if arg.starts_with("file://") {
-                file_path = arg.replace("file://", "")
-                    .replace("%20", " ")
-                    .replace("%2F", "/")
-                    .replace("%5C", "\\");
-            }
-
-            // 检查是否是我们支持的文件
-            if is_supported_file(&file_path) {
-                found_file = Some(file_path);
-                break;
-            } else if file_path.contains('/') || file_path.contains('\\') || file_path.contains('.') {
-                found_file = Some(file_path);
-                break;
-            }
-        }
-
-        found_file
-    } else {
-        None
-    };
+    let initial_file = extract_file_from_args(&args[1..]);
 
     // 创建应用状态
     let app_state = AppState {
@@ -121,19 +127,16 @@ fn main() {
             println!("📩 检测到新实例启动，参数：{:?}", argv);
 
             // 提取文件路径
-            for arg in argv.iter().skip(1) {
-                if !arg.starts_with('-') && is_supported_file(arg) {
-                    // 发送事件到前端，通知打开文件
-                    let _ = app_handle.emit("second-instance", arg.as_str());
-                    println!("📩 发送 second-instance 事件：{}", arg);
+            if let Some(file_path) = extract_file_from_args(&argv[1..]) {
+                // 发送事件到前端，通知打开文件
+                let _ = app_handle.emit("second-instance", file_path.as_str());
+                println!("📩 发送 second-instance 事件：{}", file_path);
 
-                    // 确保主窗口存在并获得焦点
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.set_focus();
-                        let _ = window.set_always_on_top(true);
-                        let _ = window.set_always_on_top(false);
-                    }
-                    break;
+                // 确保主窗口存在并获得焦点
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.set_focus();
+                    let _ = window.set_always_on_top(true);
+                    let _ = window.set_always_on_top(false);
                 }
             }
         }))
