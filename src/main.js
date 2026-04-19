@@ -561,6 +561,12 @@ function initVditor() {
   });
 }
 
+function syncOutlineResizerVisibility(outlineEl, resizerEl) {
+  if (!outlineEl || !resizerEl) return;
+  const isVisible = getComputedStyle(outlineEl).display !== 'none';
+  resizerEl.style.display = isVisible ? 'block' : 'none';
+}
+
 // 设置事件监听器
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
@@ -989,16 +995,17 @@ function setupEventListeners() {
       const outlineEl = document.querySelector('.vditor-outline');
       const resizerEl = document.getElementById('outlineResizer');
       if (outlineEl) {
-        const isHidden = (outlineEl.style.display === 'none' || outlineEl.style.display === '');
-        const nextDisplay = isHidden ? 'block' : 'none';
+        const isVisible = getComputedStyle(outlineEl).display !== 'none';
+        const nextDisplay = isVisible ? 'none' : 'block';
         outlineEl.style.display = nextDisplay;
-        if (resizerEl) resizerEl.style.display = nextDisplay;
-        
+
         // 如果显示，确保宽度正确（恢复最后一次记录的宽度）
         if (nextDisplay === 'block') {
           const savedWidth = localStorage.getItem('markedit-outline-width') || '260px';
           outlineEl.style.width = savedWidth;
         }
+
+        syncOutlineResizerVisibility(outlineEl, resizerEl);
       } else {
         // Fallback to native toggle
         const nativeOutlineBtn = document.querySelector('.vditor-toolbar [data-type="outline"]');
@@ -1034,6 +1041,13 @@ function initOutlineResizer() {
   if (savedWidth) {
     outline.style.width = savedWidth;
   }
+
+  syncOutlineResizerVisibility(outline, resizer);
+
+  const observer = new MutationObserver(() => {
+    syncOutlineResizerVisibility(outline, resizer);
+  });
+  observer.observe(outline, { attributes: true, attributeFilter: ['style', 'class'] });
 
   let isDragging = false;
 
