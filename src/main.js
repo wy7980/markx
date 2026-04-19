@@ -45,10 +45,35 @@ let currentWatchedDir = null;     // 当前被监视的目录路径
 let dirWatchInterval = null;      // 轮询定时器 ID
 let lastFileSnapshot = new Set(); // 上次文件列表快照（文件名集合）
 
+// 规范化来自系统事件/命令行的文件路径
+function normalizeIncomingFilePath(rawPath) {
+  if (!rawPath) return null;
+
+  let filePath = String(rawPath).trim();
+  if (!filePath) return null;
+
+  if (filePath.startsWith('file://')) {
+    filePath = filePath.replace(/^file:\/\/(localhost)?/i, '');
+    if (!filePath.startsWith('/')) {
+      filePath = `/${filePath}`;
+    }
+  }
+
+  if (filePath.includes('%')) {
+    try {
+      filePath = decodeURIComponent(filePath);
+    } catch (e) {
+      console.warn('⚠️ 路径 URL 解码失败，使用原始路径:', filePath, e);
+    }
+  }
+
+  return filePath;
+}
+
 // 处理通过命令行打开的文件
 async function handleInitialFile() {
   if (window._pendingMacOSFile) {
-    const filePath = window._pendingMacOSFile;
+    const filePath = normalizeIncomingFilePath(window._pendingMacOSFile);
     delete window._pendingMacOSFile;
     console.log('🍎 优先处理待处理文件:', filePath);
     try {
@@ -63,7 +88,8 @@ async function handleInitialFile() {
     console.log('🔍 检查是否有通过命令行打开的文件...');
     console.log('🔍 调用 invoke("get_initial_file")...');
     
-    const initialFile = await invoke('get_initial_file');
+    const initialFileRaw = await invoke('get_initial_file');
+    const initialFile = normalizeIncomingFilePath(initialFileRaw);
     console.log('🔍 invoke 调用完成');
     console.log(`📊 返回值类型: ${typeof initialFile}`);
     console.log(`📊 返回值:`, initialFile);
@@ -120,7 +146,7 @@ async function handleInitialFile() {
             const decodedPath = decodeURIComponent(initialFile);
             console.log(`💡 URL解码后路径: ${decodedPath}`);
             try {
-              await openTextFileFromPath(decodedPath);
+              await openFileFromPath(decodedPath);
               return;
             } catch (e) {
               console.error('❌ URL解码后打开失败:', e);
@@ -202,7 +228,8 @@ async function handleInitialFile() {
       setTimeout(async () => {
         console.log('💡 延迟检查文件路径...');
         try {
-          const delayedFile = await invoke('get_initial_file');
+          const delayedFileRaw = await invoke('get_initial_file');
+          const delayedFile = normalizeIncomingFilePath(delayedFileRaw);
           if (delayedFile && delayedFile !== initialFile) {
             console.log(`💡 延迟后获取到文件: ${delayedFile}`);
             await openFileFromPath(delayedFile);
@@ -224,12 +251,13 @@ async function handleInitialFile() {
 // 从文件路径打开文件
 async function openFileFromPath(filePath) {
   try {
-    console.log(`尝试读取文件: ${filePath}`);
-    const text = await readTextFile(filePath);
+    const normalizedPath = normalizeIncomingFilePath(filePath) || filePath;
+    console.log(`尝试读取文件: ${normalizedPath}`);
+    const text = await readTextFile(normalizedPath);
     console.log(`成功读取文件内容长度: ${text.length}`);
 
     // 获取文件信息
-    const fileName = await basename(filePath);
+    const fileName = await basename(normalizedPath);
     const fileInfo = getFileType(fileName);
 
     console.log(`📁 文件类型: ${fileInfo.name}`);
@@ -244,13 +272,13 @@ async function openFileFromPath(filePath) {
       adjustEditorForFileType(fileName);
     }
 
-    currentFilePath = filePath;
+    currentFilePath = normalizedPath;
 
     // 更新界面显示
     updateFileInfoDisplay(fileName, fileInfo);
 
     // 更新侧边栏
-    const dirPath = await dirname(filePath);
+    const dirPath = await dirname(normalizedPath);
     await populateFileList(dirPath, fileName);
     startDirWatch(dirPath);
 
@@ -258,7 +286,7 @@ async function openFileFromPath(filePath) {
   } catch (error) {
     console.error('❌ 打开文件失败:', error);
     updateStatus(`打开文件失败: ${error}`);
-    alert(`无法打开文件: ${error}\n路径: ${filePath}`);
+    alert(`无法打开文件: ${error}\n路径: ${normalizeIncomingFilePath(filePath) || filePath}`);
   }
 }
 
@@ -1368,16 +1396,21 @@ async function setupMacOSFileOpenSupport() {
 
     // 监听 second-instance 事件（当应用已运行时，通过 open -a 打开文件）
     await listen('second-instance', (event) => {
-      const filePath = event.payload;
+      const filePath = normalizeIncomingFilePath(event.payload);
       console.log('📩 检测到 second-instance 事件:', filePath);
 
-      if (filePath && editorInstance) {
+      if (!filePath) return;
+
+      if (editorInstance) {
         openFileFromPath(filePath).then(() => {
           console.log('✅ 通过 second-instance 打开文件成功:', filePath);
         }).catch(err => {
           console.error('❌ 通过 second-instance 打开文件失败:', err);
           alert(`无法打开文件：${filePath}\n\n错误：${err.message}`);
         });
+      } else {
+        console.log('⏳ 应用未初始化，缓存 second-instance 文件路径:', filePath);
+        window._pendingMacOSFile = filePath;
       }
     });
 
@@ -1385,7 +1418,7 @@ async function setupMacOSFileOpenSupport() {
 
     // macos-open-file 事件监听保留（用于未来 Tauri v2 支持）
     await listen('macos-open-file', (event) => {
-      const filePath = event.payload;
+      const filePath = normalizeIncomingFilePath(event.payload);
       console.log('🍎 macOS open-file 事件:', filePath);
 
       if (filePath && editorInstance) {

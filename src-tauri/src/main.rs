@@ -82,6 +82,18 @@ fn extract_file_from_args(args: &[String]) -> Option<String> {
     None
 }
 
+fn emit_open_file(app_handle: &tauri::AppHandle, file_path: &str, source: &str) {
+    println!("📩 [{}] 打开文件事件：{}", source, file_path);
+
+    let _ = app_handle.emit("second-instance", file_path);
+
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.set_focus();
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_always_on_top(false);
+    }
+}
+
 #[tauri::command]
 async fn close_splashscreen(app: tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
@@ -95,6 +107,7 @@ async fn close_splashscreen(app: tauri::AppHandle) {
 #[tauri::command]
 async fn get_initial_file(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
     let file = state.initial_file.lock().unwrap().take();
+    println!("📥 get_initial_file 返回：{:?}", file);
     Ok(file)
 }
 
@@ -109,9 +122,11 @@ async fn get_current_dir() -> Result<String, String> {
 fn main() {
     // 收集命令行参数
     let args: Vec<String> = std::env::args().collect();
+    println!("🚀 启动参数：{:?}", args);
 
     // 提取文件路径
     let initial_file = extract_file_from_args(&args[1..]);
+    println!("📥 启动阶段提取到文件：{:?}", initial_file);
 
     // 创建应用状态
     let app_state = AppState {
@@ -126,18 +141,12 @@ fn main() {
             // 当另一个实例启动时（应用已运行），将文件路径发送到现有实例
             println!("📩 检测到新实例启动，参数：{:?}", argv);
 
-            // 提取文件路径
-            if let Some(file_path) = extract_file_from_args(&argv[1..]) {
-                // 发送事件到前端，通知打开文件
-                let _ = app_handle.emit("second-instance", file_path.as_str());
-                println!("📩 发送 second-instance 事件：{}", file_path);
+            // 提取文件路径（single-instance argv 在不同平台/调用方式下不一定包含程序名）
+            let file_path = extract_file_from_args(&argv)
+                .or_else(|| if argv.len() > 1 { extract_file_from_args(&argv[1..]) } else { None });
 
-                // 确保主窗口存在并获得焦点
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.set_focus();
-                    let _ = window.set_always_on_top(true);
-                    let _ = window.set_always_on_top(false);
-                }
+            if let Some(file_path) = file_path {
+                emit_open_file(app_handle, &file_path, "single-instance");
             }
         }))
         .manage(app_state)
@@ -148,5 +157,25 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app_handle, _event| {});
-}
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Opened { urls } = event {
+                println!("🍎 RunEvent::Opened 收到 URLs: {:?}", urls);
+
+                for url in urls {
+                    if let Ok(path_buf) = url.to_file_path() {
+                        if let Some(path) = path_buf.to_str() {
+                            if looks_like_file_path(path) {
+                                emit_open_file(app_handle, path, "run-event-opened");
+                                return;
+                            }
+                        }
+                    }
+
+                    let path = normalize_file_arg(url.as_str());
+                    if looks_like_file_path(&path) {
+                        emit_open_file(app_handle, &path, "run-event-opened-fallback");
+                        return;
+                    }
+                }
+            }
+        });
