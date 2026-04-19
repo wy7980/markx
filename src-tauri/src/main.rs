@@ -3,9 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use tauri::{Manager, Emitter};
-use std::fs::File;
-use std::io::Write;
+use tauri::Manager;
 use std::sync::Mutex;
 
 // 全局状态存储通过命令行打开的文件路径
@@ -126,29 +124,5 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| {
-            match event {
-                tauri::RunEvent::Opened { urls } => {
-                    // macOS 特有的文件打开事件（Finder 右键打开方式）
-                    for url in urls {
-                        let path = url.to_file_path().ok()
-                            .or_else(|| std::path::PathBuf::from(url.path()).into())
-                            .map(|p| p.to_string_lossy().to_string());
-
-                        if let Some(file_path) = path {
-                            if is_supported_file(&file_path) {
-                                // 发送事件到前端，通知打开文件
-                                let _ = app_handle.emit("macos-open-file", file_path);
-
-                                // 确保主窗口存在并获得焦点
-                                if let Some(window) = app_handle.get_webview_window("main") {
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        });
+        .run(|_app_handle, _event| {});
 }
