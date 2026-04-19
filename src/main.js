@@ -1328,3 +1328,64 @@ async function getDefaultSaveFilename(currentPath = null, content = '') {
 }
 
 console.log('✅ 应用代码加载完成');
+
+// ============================================
+// macOS Finder 右键"打开方式"支持
+// ============================================
+
+// 监听来自 Rust 后端的 macos-open-file 事件
+async function setupMacOSFileOpenSupport() {
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+
+    await listen('macos-open-file', (event) => {
+      const filePath = event.payload;
+      console.log('🍎 macOS open-file 事件:', filePath);
+
+      if (filePath && editorInstance) {
+        // 如果应用已经初始化，直接打开文件
+        openFileFromPath(filePath).then(() => {
+          console.log('✅ 通过 Finder 右键打开文件成功:', filePath);
+        }).catch(err => {
+          console.error('❌ 通过 Finder 右键打开文件失败:', err);
+          alert(`无法打开文件：${filePath}\n\n错误：${err.message}`);
+        });
+      } else {
+        // 如果应用还未初始化，存储文件路径等待初始化后处理
+        console.log('⏳ 应用未初始化，缓存文件路径:', filePath);
+        window._pendingMacOSFile = filePath;
+      }
+    });
+
+    console.log('✅ macOS open-file 事件监听已设置');
+  } catch (err) {
+    console.warn('⚠️  无法注册 macOS open-file 事件监听:', err);
+  }
+}
+
+// 在应用初始化时设置 macOS 文件打开支持
+const originalInitializeApp = window.initializeApp || function() {};
+window.initializeApp = function() {
+  setupMacOSFileOpenSupport();
+  originalInitializeApp();
+};
+
+// 修改 handleInitialFile 函数，在开始时检查是否有待处理的 macOS 文件
+const originalHandleInitialFile = handleInitialFile;
+handleInitialFile = async function() {
+  // 优先处理 macOS 待处理的文件
+  if (window._pendingMacOSFile) {
+    const filePath = window._pendingMacOSFile;
+    delete window._pendingMacOSFile;
+    console.log('🍎 处理待处理的 macOS 文件:', filePath);
+    try {
+      await openFileFromPath(filePath);
+      return; // 已经完成，不需要再继续检查
+    } catch (error) {
+      console.error('❌ 处理 macOS 文件失败:', error);
+    }
+  }
+
+  // 继续执行原有的逻辑
+  return originalHandleInitialFile.call(this);
+};

@@ -53,7 +53,9 @@
       }
     },
     "macOS": {
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "entitlements": "entitlements.xml",
+      "minimumSystemVersion": "10.15"
     },
     "fileAssociations": [
       {

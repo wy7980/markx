@@ -16,7 +16,7 @@ struct AppState {
 // 检查文件是否是我们支持的文件类型
 fn is_supported_file(path: &str) -> bool {
     let lowercase_path = path.to_lowercase();
-    
+
     let supported_extensions = [
         ".md", ".markdown", ".txt", ".text", ".log",
         ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
@@ -29,20 +29,20 @@ fn is_supported_file(path: &str) -> bool {
         ".env",
         ".gitignore",
     ];
-    
+
     for ext in supported_extensions.iter() {
         if lowercase_path.ends_with(ext) {
             return true;
         }
     }
-    
+
     let special_files = ["Dockerfile", "Makefile", ".env"];
     for special in special_files.iter() {
         if path.ends_with(special) {
             return true;
         }
     }
-    
+
     false
 }
 
@@ -66,25 +66,25 @@ async fn get_initial_file(state: tauri::State<'_, AppState>) -> Result<Option<St
 async fn get_current_dir() -> Result<String, String> {
     match std::env::current_dir() {
         Ok(dir) => Ok(dir.to_string_lossy().to_string()),
-        Err(e) => Err(format!("获取当前目录失败: {}", e)),
+        Err(e) => Err(format!("获取当前目录失败：{}", e)),
     }
 }
 
 fn main() {
     // 收集命令行参数
     let args: Vec<String> = std::env::args().collect();
-    
+
     // 提取文件路径
     let initial_file = if args.len() > 1 {
         let mut found_file: Option<String> = None;
-        
+
         // 跳过第一个参数（程序名）
         for arg in &args[1..] {
             // 跳过选项参数
             if arg.starts_with('-') {
                 continue;
             }
-            
+
             // 处理 file:// URL
             let mut file_path = arg.clone();
             if arg.starts_with("file://") {
@@ -93,7 +93,7 @@ fn main() {
                     .replace("%2F", "/")
                     .replace("%5C", "\\");
             }
-            
+
             // 检查是否是我们支持的文件
             if is_supported_file(&file_path) {
                 found_file = Some(file_path);
@@ -103,18 +103,18 @@ fn main() {
                 break;
             }
         }
-        
+
         found_file
     } else {
         None
     };
-    
+
     // 创建应用状态
     let app_state = AppState {
         initial_file: Mutex::new(initial_file),
     };
 
-    let result = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -124,14 +124,31 @@ fn main() {
             get_initial_file,
             get_current_dir,
         ])
-        .setup(|_app| {
-            Ok(())
-        })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            match event {
+                tauri::RunEvent::Opened { urls } => {
+                    // macOS 特有的文件打开事件（Finder 右键打开方式）
+                    for url in urls {
+                        let path = url.to_file_path().ok()
+                            .or_else(|| std::path::PathBuf::from(url.path()).into())
+                            .map(|p| p.to_string_lossy().to_string());
 
-    if let Err(e) = result {
-        if let Ok(mut file) = File::create("markedit_crash.log") {
-            let _ = writeln!(file, "Tauri startup error:\n{}", e);
-        }
-    }
+                        if let Some(file_path) = path {
+                            if is_supported_file(&file_path) {
+                                // 发送事件到前端，通知打开文件
+                                let _ = app_handle.emit("macos-open-file", file_path);
+
+                                // 确保主窗口存在并获得焦点
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
 }
