@@ -3,7 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use std::fs::File;
 use std::io::Write;
 use std::sync::Mutex;
