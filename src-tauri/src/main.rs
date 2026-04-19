@@ -3,7 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use std::sync::Mutex;
 
 // 全局状态存储通过命令行打开的文件路径
@@ -116,6 +116,27 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app_handle, argv, _cwd| {
+            // 当另一个实例启动时（应用已运行），将文件路径发送到现有实例
+            println!("📩 检测到新实例启动，参数：{:?}", argv);
+
+            // 提取文件路径
+            for arg in argv.iter().skip(1) {
+                if !arg.starts_with('-') && is_supported_file(arg) {
+                    // 发送事件到前端，通知打开文件
+                    let _ = app_handle.emit("second-instance", arg.as_str());
+                    println!("📩 发送 second-instance 事件：{}", arg);
+
+                    // 确保主窗口存在并获得焦点
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.set_focus();
+                        let _ = window.set_always_on_top(true);
+                        let _ = window.set_always_on_top(false);
+                    }
+                    break;
+                }
+            }
+        }))
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             close_splashscreen,

@@ -1333,17 +1333,34 @@ console.log('✅ 应用代码加载完成');
 // macOS Finder 右键"打开方式"支持
 // ============================================
 
-// 监听来自 Rust 后端的 macos-open-file 事件
+// 监听来自 Rust 后端的文件打开事件
 async function setupMacOSFileOpenSupport() {
   try {
     const { listen } = await import('@tauri-apps/api/event');
 
+    // 监听 second-instance 事件（当应用已运行时，通过 open -a 打开文件）
+    await listen('second-instance', (event) => {
+      const filePath = event.payload;
+      console.log('📩 检测到 second-instance 事件:', filePath);
+
+      if (filePath && editorInstance) {
+        openFileFromPath(filePath).then(() => {
+          console.log('✅ 通过 second-instance 打开文件成功:', filePath);
+        }).catch(err => {
+          console.error('❌ 通过 second-instance 打开文件失败:', err);
+          alert(`无法打开文件：${filePath}\n\n错误：${err.message}`);
+        });
+      }
+    });
+
+    console.log('✅ second-instance 事件监听已设置');
+
+    // macos-open-file 事件监听保留（用于未来 Tauri v2 支持）
     await listen('macos-open-file', (event) => {
       const filePath = event.payload;
       console.log('🍎 macOS open-file 事件:', filePath);
 
       if (filePath && editorInstance) {
-        // 如果应用已经初始化，直接打开文件
         openFileFromPath(filePath).then(() => {
           console.log('✅ 通过 Finder 右键打开文件成功:', filePath);
         }).catch(err => {
@@ -1351,7 +1368,6 @@ async function setupMacOSFileOpenSupport() {
           alert(`无法打开文件：${filePath}\n\n错误：${err.message}`);
         });
       } else {
-        // 如果应用还未初始化，存储文件路径等待初始化后处理
         console.log('⏳ 应用未初始化，缓存文件路径:', filePath);
         window._pendingMacOSFile = filePath;
       }
@@ -1359,7 +1375,7 @@ async function setupMacOSFileOpenSupport() {
 
     console.log('✅ macOS open-file 事件监听已设置');
   } catch (err) {
-    console.warn('⚠️  无法注册 macOS open-file 事件监听:', err);
+    console.warn('⚠️  无法注册文件打开事件监听:', err);
   }
 }
 
