@@ -4,6 +4,7 @@
 )]
 
 use tauri::{Manager, Emitter};
+use std::path::Path;
 use std::sync::Mutex;
 
 // 全局状态存储通过命令行打开的文件路径
@@ -64,7 +65,19 @@ fn normalize_file_arg(arg: &str) -> String {
 }
 
 fn looks_like_file_path(path: &str) -> bool {
-    is_supported_file(path) || path.contains('/') || path.contains('\\') || path.contains('.')
+    is_supported_file(path) || Path::new(path).is_file()
+}
+
+fn is_current_executable(path: &str) -> bool {
+    let current_exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+
+    match (Path::new(path).canonicalize(), current_exe.canonicalize()) {
+        (Ok(candidate), Ok(current)) => candidate == current,
+        _ => false,
+    }
 }
 
 fn extract_file_from_args(args: &[String]) -> Option<String> {
@@ -74,6 +87,11 @@ fn extract_file_from_args(args: &[String]) -> Option<String> {
         }
 
         let file_path = normalize_file_arg(arg);
+
+        if is_current_executable(&file_path) {
+            continue;
+        }
+
         if looks_like_file_path(&file_path) {
             return Some(file_path);
         }
@@ -84,6 +102,11 @@ fn extract_file_from_args(args: &[String]) -> Option<String> {
 
 fn emit_open_file(app_handle: &tauri::AppHandle, file_path: &str, source: &str) {
     println!("📩 [{}] 打开文件事件：{}", source, file_path);
+
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        let mut initial_file = state.initial_file.lock().unwrap();
+        *initial_file = Some(file_path.to_string());
+    }
 
     let _ = app_handle.emit("second-instance", file_path);
 

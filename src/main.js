@@ -70,6 +70,23 @@ function normalizeIncomingFilePath(rawPath) {
   return filePath;
 }
 
+async function resolveToAbsolutePath(inputPath) {
+  const normalized = normalizeIncomingFilePath(inputPath);
+  if (!normalized) return null;
+
+  if (normalized.startsWith('/')) {
+    return normalized;
+  }
+
+  try {
+    const currentDir = await invoke('get_current_dir');
+    return await join(currentDir, normalized);
+  } catch (error) {
+    console.warn('⚠️ 解析相对路径失败，使用原始路径:', normalized, error);
+    return normalized;
+  }
+}
+
 // 处理通过命令行打开的文件
 async function handleInitialFile() {
   if (window._pendingMacOSFile) {
@@ -251,13 +268,17 @@ async function handleInitialFile() {
 // 从文件路径打开文件
 async function openFileFromPath(filePath) {
   try {
-    const normalizedPath = normalizeIncomingFilePath(filePath) || filePath;
-    console.log(`尝试读取文件: ${normalizedPath}`);
-    const text = await readTextFile(normalizedPath);
+    const resolvedPath = await resolveToAbsolutePath(filePath);
+    if (!resolvedPath) {
+      throw new Error('无效文件路径');
+    }
+
+    console.log(`尝试读取文件: ${resolvedPath}`);
+    const text = await readTextFile(resolvedPath);
     console.log(`成功读取文件内容长度: ${text.length}`);
 
     // 获取文件信息
-    const fileName = await basename(normalizedPath);
+    const fileName = await basename(resolvedPath);
     const fileInfo = getFileType(fileName);
 
     console.log(`📁 文件类型: ${fileInfo.name}`);
@@ -272,13 +293,13 @@ async function openFileFromPath(filePath) {
       adjustEditorForFileType(fileName);
     }
 
-    currentFilePath = normalizedPath;
+    currentFilePath = resolvedPath;
 
     // 更新界面显示
     updateFileInfoDisplay(fileName, fileInfo);
 
     // 更新侧边栏
-    const dirPath = await dirname(normalizedPath);
+    const dirPath = await dirname(resolvedPath);
     await populateFileList(dirPath, fileName);
     startDirWatch(dirPath);
 
