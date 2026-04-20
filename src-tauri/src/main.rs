@@ -180,15 +180,16 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::Opened { urls } = event {
+        .run(|_app_handle, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
                 println!("🍎 RunEvent::Opened 收到 URLs: {:?}", urls);
 
                 for url in urls {
                     if let Ok(path_buf) = url.to_file_path() {
                         if let Some(path) = path_buf.to_str() {
                             if looks_like_file_path(path) {
-                                emit_open_file(app_handle, path, "run-event-opened");
+                                emit_open_file(_app_handle, path, "run-event-opened");
                                 return;
                             }
                         }
@@ -196,7 +197,7 @@ fn main() {
 
                     let path = normalize_file_arg(url.as_str());
                     if looks_like_file_path(&path) {
-                        emit_open_file(app_handle, &path, "run-event-opened-fallback");
+                        emit_open_file(_app_handle, &path, "run-event-opened-fallback");
                         return;
                     }
                 }
