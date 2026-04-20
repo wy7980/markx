@@ -74,7 +74,7 @@ async function resolveToAbsolutePath(inputPath) {
   const normalized = normalizeIncomingFilePath(inputPath);
   if (!normalized) return null;
 
-  if (normalized.startsWith('/')) {
+  if (normalized.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(normalized)) {
     return normalized;
   }
 
