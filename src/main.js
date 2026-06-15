@@ -1158,13 +1158,55 @@ function updateWordCount() {
   if (!editorInstance) return;
 
   const content = editorInstance.getValue();
-  const text = content.replace(/[#*`\[\]()>-]/g, '').replace(/\s/g, '');
-  const paragraphs = content.split(/\n\n+/).filter(p => p.trim()).length;
+
+  // ── 段落数：去掉代码块后，按空行分割非空块 ──────────────────
+  const noCodeBlocks = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
+  const paragraphs = noCodeBlocks
+    .split(/\n{2,}/)
+    .filter(p => p.trim().length > 0)
+    .length;
+
+  // ── 字数：剥离 Markdown 语法符号后统计 ──────────────────────
+  let plain = content
+    // 去掉代码块（围栏式）
+    .replace(/```[\s\S]*?```/g, '')
+    // 去掉行内代码
+    .replace(/`[^`]*`/g, '')
+    // 去掉 HTML 标签
+    .replace(/<[^>]+>/g, '')
+    // 去掉图片 ![alt](url)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    // 去掉链接 [text](url)，保留 text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // 去掉标题符 #
+    .replace(/^#{1,6}\s+/gm, '')
+    // 去掉粗体/斜体符号 ** __ * _
+    .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, '$2')
+    // 去掉删除线 ~~
+    .replace(/~~(.*?)~~/g, '$1')
+    // 去掉引用符 >
+    .replace(/^>\s*/gm, '')
+    // 去掉水平线
+    .replace(/^[-*_]{3,}\s*$/gm, '')
+    // 去掉列表符号 - + * 及有序列表编号
+    .replace(/^[\s]*[-+*]\s+/gm, '')
+    .replace(/^[\s]*\d+\.\s+/gm, '');
+
+  // 统计中文字符数
+  const chineseChars = (plain.match(/[\u4e00-\u9fa5\u3400-\u4dbf\uf900-\ufaff]/g) || []).length;
+  // 去掉中文及标点后，统计英文单词数
+  const withoutChinese = plain.replace(/[\u4e00-\u9fa5\u3400-\u4dbf\uf900-\ufaff]/g, ' ');
+  const englishWords = withoutChinese
+    .trim()
+    .split(/\s+/)
+    .filter(w => w.match(/[a-zA-Z0-9]/)).length;
+
+  const totalCount = chineseChars + englishWords;
 
   const wordCount = document.getElementById('wordCount');
   const paraCount = document.getElementById('paraCount');
 
-  if (wordCount) wordCount.textContent = text.length;
+  if (wordCount) wordCount.textContent = totalCount;
   if (paraCount) paraCount.textContent = paragraphs;
 }
 
