@@ -192,6 +192,7 @@ async function handleInitialFile() {
               console.log(`✅ 直接读取成功，长度: ${text.length}`);
               if (editorInstance) {
                 editorInstance.setValue(String(text || ''));
+                updateWordCount();
               }
               currentFilePath = initialFile;
               document.getElementById('filePath').textContent = currentFilePath;
@@ -288,6 +289,7 @@ async function openFileFromPath(filePath) {
     // 设置编辑器内容
     if (editorInstance) {
       editorInstance.setValue(String(text || ''));
+      updateWordCount();
 
       // 根据文件类型调整编辑器模式
       adjustEditorForFileType(fileName);
@@ -459,6 +461,7 @@ async function populateFileList(dirPath, activeFileName) {
           console.log(`成功读取文件内容长度: ${text.length}`);
           if (editorInstance) {
             editorInstance.setValue(String(text || ''));
+            updateWordCount();
           }
           currentFilePath = filePath;
           document.getElementById('filePath').textContent = currentFilePath;
@@ -754,7 +757,7 @@ function setupEventListeners() {
           if (currentFilePath === contextTargetFile.path) {
             currentFilePath = null;
             document.getElementById('filePath').textContent = '未保存';
-            if (editorInstance) editorInstance.setValue('', true);
+            if (editorInstance) { editorInstance.setValue('', true); updateWordCount(); }
           }
           const dir = await dirname(contextTargetFile.path);
           await populateFileList(dir, currentFilePath ? await basename(currentFilePath) : null);
@@ -772,6 +775,7 @@ function setupEventListeners() {
       console.log('📄 新建文件');
       if (editorInstance) {
         editorInstance.setValue('# 新文档\n\n开始编辑...', true);
+        updateWordCount();
       }
       currentFilePath = null;
       document.getElementById('filePath').textContent = '未保存';
@@ -800,6 +804,7 @@ function setupEventListeners() {
           const text = await readTextFile(filePath);
           if (editorInstance) {
             editorInstance.setValue(text);
+            updateWordCount();
           }
           currentFilePath = filePath;
           const fileName = await basename(filePath);
@@ -826,6 +831,7 @@ function setupEventListeners() {
                 const text = await file.text();
                 if (editorInstance) {
                   editorInstance.setValue(text);
+                  updateWordCount();
                 }
                 updateStatus(`已打开: ${file.name}`);
               } catch (err) {
