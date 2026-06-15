@@ -599,9 +599,13 @@ function initVditor() {
         enable: true,
         position: 'right'
       },
-      input: () => {
-        updateWordCount();
-      },
+      input: (() => {
+        let _timer = null;
+        return () => {
+          clearTimeout(_timer);
+          _timer = setTimeout(updateWordCount, 300);
+        };
+      })(),
       after: () => {
         console.log('✅ Vditor 编辑器已加载');
         updateWordCount();
