@@ -138,6 +138,19 @@
       <div class="editor-container">
         <div class="editor-wrapper">
           <div id="vditor-container"></div>
+          <!-- 大文件模式：横幅 + 轻量编辑区（默认隐藏，由 main.js 控制显隐） -->
+          <div id="largeFileBanner" class="large-file-banner" hidden>
+            <span class="large-file-banner__text">
+              📄 大文件模式：已跳过富文本渲染以保证打开速度，编辑以纯文本进行，保存格式不变。
+            </span>
+            <button id="btnRichTextMode" class="large-file-banner__btn" type="button">用富文本打开</button>
+          </div>
+          <div id="largeFileEditor" class="large-file-editor-host" style="display: none;"></div>
+          <!-- 大文件模式大纲（正则提取标题，点击滚动到对应行） -->
+          <div id="largeFileOutline" class="large-file-outline" hidden>
+            <div class="large-file-outline__title">大纲</div>
+            <div id="largeFileOutlineList" class="large-file-outline__list"></div>
+          </div>
         </div>
       </div>
 
