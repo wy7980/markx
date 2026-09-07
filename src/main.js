@@ -9,7 +9,6 @@ import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
-import { LargeFileEditor } from './large-file-editor.js';
 
 // 导入文件类型检测模块
 import { 
@@ -53,6 +52,7 @@ const WORDCOUNT_SKIP_THRESHOLD = 512 * 1024;   // 字数统计门阔（UTF-8 字
 let largeFileMode = false;       // 当前是否处于大文件模式
 let largeFileEditor = null;      // CodeMirror 6 引擎实例（惰性创建）
 let lastLoadedByteLen = 0;       // 最近一次打开文件的字节数（实时统计门阔）
+let largeFileSession = 0;        // 大文件模式会话序号（一次性统计归属判定）
 
 // 规范化来自系统事件/命令行的文件路径
 function normalizeIncomingFilePath(rawPath) {
@@ -316,7 +316,7 @@ async function loadFileIntoEditor(filePath) {
     console.log(`尝试读取文件: ${filePath}`);
     const text = await readTextFile(filePath);
     const byteLen = new TextEncoder().encode(text).length;   // 与实测口径统一的字节数
-    lastLoadedByteLen = byteLen;
+    const prevByteLen = lastLoadedByteLen;                   // 旧文档大小（决定模式切换前是否先释放旧内容）
     console.log(`成功读取文件，字节: ${byteLen}`);
 
     const fileName = await basename(filePath);
@@ -333,6 +333,11 @@ async function loadFileIntoEditor(filePath) {
     } else {
       await exitLargeFileModeIfActive();
       if (editorInstance) {
+        // 旧文档是大文件（可能正以富文本兑底方式驻留在 Vditor 中，且模式可能不同）：
+        // 必须先释放旧内容，否则紧随其后的模式切换会让 vditor 对旧大文档做全量重渲染（可达数十秒冻结）
+        if (prevByteLen >= LARGE_FILE_MODE_THRESHOLD) {
+          editorInstance.setValue('');
+        }
         // 非 Markdown 文本（plain/code）使用 SV 源码模式（修复原 setMode 无效调用的语义缺失）
         const targetMode = (editorMode === 'plain' || editorMode === 'code') ? 'sv' : 'ir';
         if (editorInstance.getCurrentMode && editorInstance.getCurrentMode() !== targetMode) {
@@ -345,6 +350,7 @@ async function loadFileIntoEditor(filePath) {
     }
 
     currentFilePath = filePath;
+    lastLoadedByteLen = byteLen;   // 成功打开后才提交门阔状态（失败路径不污染）
 
     // 4. 界面与侧边栏
     updateFileInfoDisplay(fileName, fileInfo);
@@ -371,8 +377,10 @@ function frame(ms = 60) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function ensureLargeFileEditor() {
+async function ensureLargeFileEditor() {
   if (!largeFileEditor) {
+    // 动态 import：CM6 不进首屏 bundle（评审 P3，实测主 chunk 879KB→328KB）
+    const { LargeFileEditor } = await import('./large-file-editor.js');
     largeFileEditor = new LargeFileEditor(document.getElementById('largeFileEditor'));
   }
   return largeFileEditor;
@@ -380,6 +388,7 @@ function ensureLargeFileEditor() {
 
 async function enterLargeFileMode(text, filePath, byteLen) {
   largeFileMode = true;
+  const session = ++largeFileSession;   // 会话令牌：区分一次性统计归属，防止大→大快速切换时旧统计覆盖新文档
 
   // 1. Vditor 容器隐藏并清空内容（实例保留避免重建成本，同时释放旧文档内存）
   if (editorInstance) {
@@ -388,10 +397,10 @@ async function enterLargeFileMode(text, filePath, byteLen) {
   }
 
   // 2. 显示大文件编辑区并填充（O(n) 字符串操作，无 Markdown 解析、无全量 DOM）
-  const lfe = ensureLargeFileEditor();
+  const lfe = await ensureLargeFileEditor();
   lfe.setTheme(document.documentElement.getAttribute('data-theme') === 'dark');
   lfe.show();
-  lfe.setValue(text);
+  lfe.setValue(text, byteLen);
 
   // 3. 横幅提示
   const banner = document.getElementById('largeFileBanner');
@@ -399,7 +408,7 @@ async function enterLargeFileMode(text, filePath, byteLen) {
 
   // 4. 首帧后做一次性字数统计（此后编辑期间不再实时更新，见 updateWordCount 门阔）
   setTimeout(() => {
-    if (largeFileMode) oneTimeWordCount(text);
+    if (largeFileMode && session === largeFileSession) oneTimeWordCount(text);
   }, 0);
 
   // 5. 大纲：正则提取标题（O(n)，约 10ms/MB），点击滚动到对应行
@@ -412,7 +421,10 @@ async function exitLargeFileModeIfActive() {
   const banner = document.getElementById('largeFileBanner');
   if (banner) banner.hidden = true;
   hideLargeFileOutline();
-  if (largeFileEditor) largeFileEditor.hide();
+  if (largeFileEditor) {
+    largeFileEditor.setValue('');   // 释放 CM6 持有的文档内存（含撤销栈），避免大文本长期驻留
+    largeFileEditor.hide();
+  }
   const vc = document.getElementById('vditor-container');
   if (vc) vc.style.display = '';
 }
@@ -431,11 +443,19 @@ async function getHtmlForExport() {
   updateStatus('大文件模式：正在渲染 HTML（大文档可能较慢），请稍候…');
   await frame();
   const holder = document.createElement('div');
-  await new Promise((resolve) => {
-    Vditor.preview(holder, getEditorValue(), {
+  // vditor.preview 内部脚本（mermaid/katex 等）加载失败时会 reject 且不调用 after：
+  // 必须接住拒绝并加超时，否则导出无声挂死
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('HTML 渲染超时')), 120000);
+    Promise.resolve(Vditor.preview(holder, getEditorValue(), {
       cdn: '/vditor',
-      speech: { enable: false },
-      after: resolve
+      speech: { enable: false }
+    })).then(() => {
+      clearTimeout(timer);
+      resolve();
+    }).catch((err) => {
+      clearTimeout(timer);
+      reject(err);
     });
   });
   updateStatus('HTML 渲染完成');
@@ -461,7 +481,10 @@ function switchEditorMode(mode) {
   try {
     editorInstance.focus();
     const digit = mode === 'wysiwyg' ? '7' : (mode === 'sv' ? '9' : '8');
-    const host = document.querySelector('.vditor-content');
+    // vditor 的 keydown 监听绑在内层可编辑元素上；DOM 事件只向上冒泡，
+    // 派发到外层 .vditor-content 永远到不了监听器
+    const host = document.querySelector('.vditor-content [contenteditable="true"]')
+      || document.querySelector('.vditor-content');
     if (host) {
       host.dispatchEvent(new KeyboardEvent('keydown', {
         key: digit, code: `Digit${digit}`, altKey: true, ctrlKey: true, bubbles: true, cancelable: true
@@ -475,27 +498,30 @@ function switchEditorMode(mode) {
   return false;
 }
 
-/** 大文件模式大纲：从文本正则提取标题（累进扫描，均摊 O(n)） */
+/** 大文件模式大纲：逐行扫描提取标题（排除代码围栏内的 # 行；CRLF 安全；均摊 O(n)） */
 function renderLargeFileOutline(text) {
   const panel = document.getElementById('largeFileOutline');
   const list = document.getElementById('largeFileOutlineList');
   if (!panel || !list) return;
 
+  const OUTLINE_MAX = 500;
   const headings = [];
-  const re = /^#{1,6} .+$/gm;
-  let m;
-  let line = 0;
-  let scanFrom = 0;
-  while ((m = re.exec(text)) !== null && headings.length < 500) {
-    for (let i = scanFrom; i < m.index; i++) {
-      if (text.charCodeAt(i) === 10) line++;
+  let truncated = false;
+  const lines = text.split('\n');
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (/^\s*(```|~~~)/.test(raw)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const m = /^(#{1,6}) (.+)$/.exec(raw);
+    if (m) {
+      if (headings.length >= OUTLINE_MAX) { truncated = true; break; }
+      headings.push({
+        level: m[1].length,
+        text: m[2].replace(/\r$/, '').slice(0, 80),
+        line: i
+      });
     }
-    scanFrom = m.index + m[0].length;
-    headings.push({
-      level: m[0].match(/^#+/)[0].length,
-      text: m[0].replace(/^#+\s*/, '').slice(0, 80),
-      line
-    });
   }
 
   list.innerHTML = '';
@@ -510,6 +536,12 @@ function renderLargeFileOutline(text) {
     });
     list.appendChild(item);
   });
+  if (truncated) {
+    const hint = document.createElement('div');
+    hint.className = 'large-file-outline__item';
+    hint.textContent = `（仅显示前 ${OUTLINE_MAX} 条）`;
+    list.appendChild(hint);
+  }
   panel.hidden = headings.length === 0;
 }
 
@@ -1023,15 +1055,30 @@ function setupEventListeners() {
             const file = e.target.files[0];
             if (file) {
               try {
+                // 与 Tauri 主路径同规则：大小守卫 → 引擎选择 → 状态一致退出
+                if (file.size > HUGE_FILE_LIMIT) {
+                  updateStatus(`文件过大，已取消打开: ${file.name}`);
+                  alert(`文件过大（${(file.size / 1048576).toFixed(0)} MB），超出本应用处理能力。`);
+                  return;
+                }
                 const text = await file.text();
                 const byteLen = new TextEncoder().encode(text).length;
-                lastLoadedByteLen = byteLen;
+                const prevByteLen = lastLoadedByteLen;
                 if (byteLen >= LARGE_FILE_MODE_THRESHOLD) {
                   await enterLargeFileMode(text, file.name, byteLen);
-                } else if (editorInstance) {
-                  editorInstance.setValue(text);
-                  updateWordCount(text);
+                } else {
+                  // 打开小文件必须退出大文件模式，否则 largeFileMode 仍为 true、
+                  // getEditorValue() 会把旧大文件内容当成新文件保存（内容错配）
+                  await exitLargeFileModeIfActive();
+                  if (prevByteLen >= LARGE_FILE_MODE_THRESHOLD && editorInstance) {
+                    editorInstance.setValue('');
+                  }
+                  if (editorInstance) {
+                    editorInstance.setValue(text);
+                    updateWordCount(text);
+                  }
                 }
+                lastLoadedByteLen = byteLen;   // 成功打开后才提交门阔状态
                 updateStatus(`已打开: ${file.name}`);
               } catch (err) {
                 console.error('❌ 读取文件失败:', err);
@@ -1145,7 +1192,7 @@ function setupEventListeners() {
       } catch (e) {
         console.error('导出 Markdown 失败:', e);
         // Web 端兜底
-        const blob = new Blob([editorInstance.getValue()], { type: 'text/markdown' });
+        const blob = new Blob([getEditorValue()], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1162,8 +1209,10 @@ function setupEventListeners() {
     exportHtml.addEventListener('click', async () => {
       exportMenu.style.display = 'none';
       if (!editorInstance) return;
-      const htmlContent = await getHtmlForExport();
-      const fullHtml = `<!DOCTYPE html>
+      let fullHtml = null;
+      try {
+        const htmlContent = await getHtmlForExport();
+        fullHtml = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -1183,18 +1232,23 @@ function setupEventListeners() {
 </head>
 <body>${htmlContent}</body>
 </html>`;
-      try {
-        const selectedPath = await save({
-          title: '导出 HTML',
-          defaultPath: (currentFilePath ? await basename(currentFilePath, '.md') : '文档') + '.html',
-          filters: [{ name: 'HTML 文件', extensions: ['html'] }]
-        });
-        if (selectedPath) {
-          await writeTextFile(selectedPath, fullHtml);
-          updateStatus(`已导出 HTML: ${await basename(selectedPath)}`);
-        }
-      } catch (e) {
+      const selectedPath = await save({
+        title: '导出 HTML',
+        defaultPath: (currentFilePath ? await basename(currentFilePath, '.md') : '文档') + '.html',
+        filters: [{ name: 'HTML 文件', extensions: ['html'] }]
+      });
+      if (selectedPath) {
+        await writeTextFile(selectedPath, fullHtml);
+        updateStatus(`已导出 HTML: ${await basename(selectedPath)}`);
+      }
+    } catch (e) {
         console.error('导出 HTML 失败:', e);
+        if (!fullHtml) {
+          // 渲染阶段就失败（无内容可兑底下载），明确报错而不是导出空文件
+          updateStatus(`导出 HTML 失败: ${e.message || e}`);
+          alert(`导出 HTML 失败: ${e.message || e}`);
+          return;
+        }
         const blob = new Blob([fullHtml], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1251,6 +1305,12 @@ function setupEventListeners() {
   if (btnOutline) {
     btnOutline.addEventListener('click', () => {
       console.log('📑 触发切换大纲');
+      // 大文件模式：切换大文件大纲面板（vditor 的大纲在隐藏容器内，操作它无可见效果）
+      if (largeFileMode) {
+        const largeOutline = document.getElementById('largeFileOutline');
+        if (largeOutline) largeOutline.hidden = !largeOutline.hidden;
+        return;
+      }
       const outlineEl = document.querySelector('.vditor-outline');
       const resizerEl = document.getElementById('outlineResizer');
       if (outlineEl) {
@@ -1502,13 +1562,15 @@ window.isMarkdownFile = isMarkdownFile;
 window.getEditorMode = getEditorMode;
 window.getFileLanguage = getFileLanguage;
 
-// 测试钩子：供 e2e/性能测试直接驱动大文件模式（浏览器环境无 Tauri IPC 时也可用）
-window._markeditTestHooks = {
-  enterLargeFileMode,
-  exitLargeFileModeIfActive,
-  getEditorValue,
-  loadFileIntoEditor
-};
+// 测试钩子：供 e2e/性能测试直接驱动大文件模式（仅开发构建，不进生产包）
+if (import.meta.env.DEV) {
+  window._markeditTestHooks = {
+    enterLargeFileMode,
+    exitLargeFileModeIfActive,
+    getEditorValue,
+    loadFileIntoEditor
+  };
+}
 
 // ============================================
 // 新增函数：文件类型相关功能

@@ -6,12 +6,9 @@
  * - 增量解析：@codemirror/lang-markdown（Lezer），语法高亮按需，滚动到哪里高亮到哪里
  * - 引擎可替换：与 Vditor 引擎之间通过 main.js 的 getEditorValue()/largeFileMode 状态位衔接，
  *   保存/导出路径零改动
+ * - 对齐 VS Code largeFileOptimizations 思想：超大文档禁用昂贵特性（选中匹配高亮全文扫描）
  *
- * 特性：
- * - 行号、撤销/重做（history）、搜索（Ctrl+F 面板）、多选区
- * - 明暗主题跟随应用（oneDark / 默认亮色），通过 Compartment 动态切换
- * - focusLine(line)：大纲跳转到指定行（0-based）
- * - 大文档禁用自动补全（基于词的补全是 O(全文) 操作，对齐 VS Code 的 largeFileOptimizations 思想）
+ * 由 main.js 的 ensureLargeFileEditor() 动态 import（避免 CM6 进入首屏 bundle）。
  */
 import { EditorView, keymap, lineNumbers, drawSelection, dropCursor,
   highlightActiveLine, highlightSpecialChars, rectangularSelection, crosshairCursor } from '@codemirror/view';
@@ -21,22 +18,23 @@ import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/sea
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 
+/** 超过此字节数禁用"选中匹配高亮"（选中词语时会全文扫描，O(文档)） */
+const HIGHLIGHT_MATCHES_DISABLE_THRESHOLD = 2 * 1024 * 1024;
+
 export class LargeFileEditor {
   /**
    * @param {HTMLElement} hostElement 宿主容器（由调用方控制显隐与布局）
-   * @param {{onChange?: (docIsDirty: boolean) => void}} [options]
    */
-  constructor(hostElement, options = {}) {
+  constructor(hostElement) {
     this.host = hostElement;
-    this._options = options || {};
-    this._dirty = false;
+    this.view = null;
     this._extensions = null;
     this._themeCompartment = new Compartment();
+    this._hsmCompartment = new Compartment();   // 选中匹配高亮开关
     this._build();
   }
 
   _build() {
-    const self = this;
     const localTheme = EditorView.theme({
       '&': { height: '100%', fontSize: '14px' },
       '.cm-scroller': {
@@ -56,21 +54,13 @@ export class LargeFileEditor {
       rectangularSelection(),
       crosshairCursor(),
       highlightActiveLine(),
-      highlightSelectionMatches(),
       search({ top: true }),
       EditorState.allowMultipleSelections.of(true),
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       markdown({ base: markdownLanguage }),
       this._themeCompartment.of([]),
-      localTheme,
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
-          self._dirty = true;
-          if (typeof self._options.onChange === 'function') {
-            self._options.onChange(true);
-          }
-        }
-      })
+      this._hsmCompartment.of([]),
+      localTheme
     ];
 
     this.view = new EditorView({
@@ -92,10 +82,36 @@ export class LargeFileEditor {
     this.host.style.display = 'none';
   }
 
-  /** 整篇替换文档（打开/切换文件时使用；重置撤销栈与脏标记） */
-  setValue(text) {
-    this.view.setState(EditorState.create({ doc: String(text || ''), extensions: this._extensions }));
-    this._dirty = false;
+  /**
+   * 整篇替换文档（打开/切换文件时使用；重置撤销栈）。
+   * CRLF 占优的文档通过 lineSeparator 声明行尾，保证 Enter 插入 \r\n、
+   * getValue() 原样还原，避免编辑后产生混合行尾（Windows 场景）。
+   * @param {string} text
+   * @param {number} [byteLen] 调用方已算好的 UTF-8 字节数（避免重复全量编码）
+   */
+  setValue(text, byteLen) {
+    const doc = String(text || '');
+    if (byteLen === undefined) {
+      byteLen = new TextEncoder().encode(doc).length;
+    }
+
+    // 行尾检测：\r\n 占优时启用 CRLF 行分隔符
+    const crlfCount = (doc.match(/\r\n/g) || []).length;
+    const lfCount = (doc.match(/\n/g) || []).length;
+    const useCrlf = crlfCount > 0 && crlfCount > (lfCount - crlfCount);
+
+    const extensions = useCrlf
+      ? [...this._extensions, EditorState.lineSeparator.of('\r\n')]
+      : this._extensions;
+    this.view.setState(EditorState.create({ doc, extensions }));
+
+    // 选中匹配高亮（highlightSelectionMatches）在选中词语时会全文扫描：
+    // 超大文档禁用该昂贵特性
+    this.view.dispatch({
+      effects: this._hsmCompartment.reconfigure(
+        byteLen > HIGHLIGHT_MATCHES_DISABLE_THRESHOLD ? [] : highlightSelectionMatches()
+      )
+    });
   }
 
   getValue() {
@@ -123,10 +139,6 @@ export class LargeFileEditor {
       scrollIntoView: true
     });
     this.view.focus();
-  }
-
-  get dirty() {
-    return this._dirty;
   }
 
   destroy() {
