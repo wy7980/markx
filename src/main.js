@@ -420,13 +420,21 @@ async function exitLargeFileModeIfActive() {
   largeFileMode = false;
   const banner = document.getElementById('largeFileBanner');
   if (banner) banner.hidden = true;
-  hideLargeFileOutline();
+  setLargeOutlineVisible(false);
   if (largeFileEditor) {
     largeFileEditor.setValue('');   // 释放 CM6 持有的文档内存（含撤销栈），避免大文本长期驻留
     largeFileEditor.hide();
   }
   const vc = document.getElementById('vditor-container');
   if (vc) vc.style.display = '';
+}
+
+/** 大文件大纲显隐的唯一入口：同步面板与编辑区宿主的让位（避免悬浮面板遮盖正文） */
+function setLargeOutlineVisible(visible) {
+  const panel = document.getElementById('largeFileOutline');
+  if (panel) panel.hidden = !visible;
+  const host = document.getElementById('largeFileEditor');
+  if (host) host.classList.toggle('with-outline', visible);
 }
 
 /** 值读取统一抽象：保存/导出路径的唯一分支点 */
@@ -542,12 +550,7 @@ function renderLargeFileOutline(text) {
     hint.textContent = `（仅显示前 ${OUTLINE_MAX} 条）`;
     list.appendChild(hint);
   }
-  panel.hidden = headings.length === 0;
-}
-
-function hideLargeFileOutline() {
-  const panel = document.getElementById('largeFileOutline');
-  if (panel) panel.hidden = true;
+  setLargeOutlineVisible(headings.length > 0);
 }
 
 // 全局禁用浏览器默认右键菜单（侧边栏文件列表由自定义菜单接管）
@@ -1308,7 +1311,7 @@ function setupEventListeners() {
       // 大文件模式：切换大文件大纲面板（vditor 的大纲在隐藏容器内，操作它无可见效果）
       if (largeFileMode) {
         const largeOutline = document.getElementById('largeFileOutline');
-        if (largeOutline) largeOutline.hidden = !largeOutline.hidden;
+        if (largeOutline) setLargeOutlineVisible(largeOutline.hidden);
         return;
       }
       const outlineEl = document.querySelector('.vditor-outline');

@@ -371,6 +371,12 @@ body {
   overflow: hidden;
 }
 
+/* 大文件大纲展开时编辑区让出右侧空间（与 vditor 大纲的弹性布局行为一致，
+   避免悬浮面板遮盖正文） */
+.large-file-editor-host.with-outline {
+  right: 240px;
+}
+
 .large-file-editor-host .cm-editor {
   height: 100%;
 }
@@ -934,7 +940,9 @@ body {
   .export-menu,
   .vditor-toolbar,
   .vditor-outline,
-  .vditor-tip {
+  .vditor-tip,
+  .large-file-banner,
+  .large-file-outline {
     display: none !important;
   }
 
