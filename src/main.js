@@ -396,6 +396,10 @@ async function enterLargeFileMode(text, filePath, byteLen) {
     document.getElementById('vditor-container').style.display = 'none';
   }
 
+  // 大文件模式下提示职责由大文件横幅承担（vditor 容器已隐藏），
+  // 未清除的旧提示条会错位悬浮在编辑区顶部
+  removeFileTypeHint();
+
   // 2. 显示大文件编辑区并填充（O(n) 字符串操作，无 Markdown 解析、无全量 DOM）
   const lfe = await ensureLargeFileEditor();
   lfe.setTheme(document.documentElement.getAttribute('data-theme') === 'dark');
@@ -1597,31 +1601,13 @@ function adjustEditorForFileType(filename) {
     mode: editorMode
   });
 
+  // 提示条与文件类型保持同步：非 Markdown 显示，Markdown 移除（幂等，见 syncFileTypeHint）
+  syncFileTypeHint(filename);
+
   // 对于非 Markdown 文件，禁用一些 Markdown 特定的工具栏按钮
   if (!isMarkdown) {
     // 可以在这里添加逻辑来隐藏或禁用某些工具栏按钮
     console.log('ℹ️  非 Markdown 文件，已禁用 Markdown 特定功能');
-
-    // 更新编辑器提示
-    const editorContainer = document.getElementById('vditor-container');
-    if (editorContainer) {
-      const hintElement = editorContainer.querySelector('.file-type-hint');
-      if (!hintElement) {
-        const hint = document.createElement('div');
-        hint.className = 'file-type-hint';
-        hint.style.cssText = `
-          padding: 8px 12px;
-          margin: 10px;
-          background: #f0f0f0;
-          border-left: 4px solid #4a90e2;
-          border-radius: 4px;
-          font-size: 14px;
-          color: #333;
-        `;
-        hint.innerHTML = `📄 正在编辑 ${fileInfo.name} 文件 (${fileInfo.icon})`;
-        editorContainer.parentNode.insertBefore(hint, editorContainer);
-      }
-    }
   }
 
   // 模式切换（plain/code → SV 源码模式）已在 loadFileIntoEditor 中于 setValue 之前完成。
@@ -1630,6 +1616,67 @@ function adjustEditorForFileType(filename) {
   if (editorMode === 'plain' || editorMode === 'code') {
     console.log('ℹ️  非 Markdown 文件已使用源码模式打开（由统一入口处理）');
   }
+}
+
+/**
+ * 查找已挂载的文件类型提示条
+ * 注意：提示条是 #vditor-container 的“前置兄弟节点”（挂在 .editor-wrapper 下），
+ * 查找作用域必须与插入位置一致；不能用 editorContainer.querySelector（那只查子孙，会永远查不到）。
+ * @returns {HTMLElement|null}
+ */
+function findFileTypeHint() {
+  const editorContainer = document.getElementById('vditor-container');
+  const wrapper = editorContainer && editorContainer.parentNode;
+  if (!wrapper) return null;
+
+  for (const child of Array.from(wrapper.children)) {
+    if (child.classList && child.classList.contains('file-type-hint')) return child;
+  }
+  return null;
+}
+
+/**
+ * 移除文件类型提示条（幂等：不存在时为空操作）
+ */
+function removeFileTypeHint() {
+  const hint = findFileTypeHint();
+  if (hint) hint.remove();
+}
+
+/**
+ * 同步“正在编辑 XX 文件”提示条（幂等）
+ * - 非 Markdown：复用已有节点并更新文案，避免每打开一次就多堆一条
+ * - Markdown：移除，避免切换文件后旧提示条残留
+ * @param {string} filename - 文件名或完整路径（getFileType 会自行取 basename）
+ */
+function syncFileTypeHint(filename) {
+  const editorContainer = document.getElementById('vditor-container');
+  const wrapper = editorContainer && editorContainer.parentNode;
+  if (!wrapper) return;
+
+  if (isMarkdownFile(filename)) {
+    removeFileTypeHint();
+    return;
+  }
+
+  const fileInfo = getFileType(filename);
+  let hint = findFileTypeHint();
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.className = 'file-type-hint';
+    hint.style.cssText = `
+      padding: 8px 12px;
+      margin: 10px;
+      background: #f0f0f0;
+      border-left: 4px solid #4a90e2;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #333;
+    `;
+    // 插在 #vditor-container 之前（兄弟位置，与 findFileTypeHint 的查找作用域保持一致）
+    wrapper.insertBefore(hint, editorContainer);
+  }
+  hint.textContent = `📄 正在编辑 ${fileInfo.name} 文件 (${fileInfo.icon})`;
 }
 
 /**
