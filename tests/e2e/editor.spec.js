@@ -113,6 +113,30 @@ test.describe('编辑器模式', () => {
     await switchMode(page, 'ir');
     await expect(page.locator('.vditor-ir pre.vditor-reset')).toBeVisible();
   });
+
+  test('非 Markdown 文件应该使用纯文本引擎并保留缩进', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => !!window._markeditTestHooks, { timeout: 15000 });
+
+    const result = await page.evaluate(async () => {
+      const text = 'def foo():\n    return 1\n';
+      window._markeditTestHooks.setCurrentFileIsMarkdown(false);
+      await window._markeditTestHooks.enterLargeFileMode(
+        text, '/mock/a.py', new TextEncoder().encode(text).length, { large: false }
+      );
+      return {
+        same: window._markeditTestHooks.getEditorValue() === text,
+        cmVisible: !!document.querySelector('.cm-editor'),
+        vditorHidden: document.getElementById('vditor-container').style.display === 'none',
+        bannerHidden: document.getElementById('largeFileBanner').hidden
+      };
+    });
+
+    expect(result.same).toBe(true);
+    expect(result.cmVisible).toBe(true);
+    expect(result.vditorHidden).toBe(true);
+    expect(result.bannerHidden).toBe(true);
+  });
 });
 
 test.describe('大纲更新', () => {

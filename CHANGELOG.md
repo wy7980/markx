@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - 编辑模式收敛为「即时渲染 / 分屏预览」两种，移除「所见即所得」入口（工具栏菜单与 Ctrl/Cmd+Alt+7 均不再生效）
+- 分屏预览下，纯文本 / 代码文件只显示源码，不再渲染无意义的 Markdown 预览
+- 非 Markdown 文件改用 CodeMirror 6 纯文本编辑器（语法高亮），修复 Vditor 按 Markdown 解析导致缩进丢失、保存改写文件的问题
+- 大文件横幅与「用富文本打开」仅对 Markdown 大文件显示；代码文件的 HTML 导出为转义后的 `<pre>`
 
 ## [1.0.0] - 2024-04-04
 

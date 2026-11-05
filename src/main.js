@@ -37,6 +37,7 @@ console.log(`✅ SVG支持: ${svgSupported ? '是' : '否'}`);
 
 // 基础变量
 let currentFilePath = null;
+let currentFileIsMarkdown = true;   // 当前文档是否为 Markdown（决定编辑器引擎与 SV 预览面板）
 let editorInstance = null;
 let contextTargetFile = null; // 用于存储当前右击的目标文件
 
@@ -49,10 +50,12 @@ let lastFileSnapshot = new Set(); // 上次文件列表快照（文件名集合�
 const LARGE_FILE_MODE_THRESHOLD = 512 * 1024;  // ≥ 此字节数进入大文件模式（跳过富文本渲染）
 const HUGE_FILE_LIMIT = 20 * 1024 * 1024;      // 硬上限：超过则拒绝打开
 const WORDCOUNT_SKIP_THRESHOLD = 512 * 1024;   // 字数统计门阔（UTF-8 字节）
-let largeFileMode = false;       // 当前是否处于大文件模式
+let largeFileMode = false;       // 当前是否使用 CodeMirror 文本引擎（大文件 / 非 Markdown 文件）
+let largeFileIsLarge = false;    // 文本引擎下当前文档是否超过大文件阈值（决定横幅与实时统计）
 let largeFileEditor = null;      // CodeMirror 6 引擎实例（惰性创建）
 let lastLoadedByteLen = 0;       // 最近一次打开文件的字节数（实时统计门阔）
 let largeFileSession = 0;        // 大文件模式会话序号（一次性统计归属判定）
+let textWordCountTimer = null;   // 文本引擎下字数统计防抖定时器
 
 // 规范化来自系统事件/命令行的文件路径
 function normalizeIncomingFilePath(rawPath) {
@@ -322,14 +325,17 @@ async function loadFileIntoEditor(filePath) {
     const fileName = await basename(filePath);
     const fileInfo = getFileType(fileName);
     const editorMode = getEditorMode(fileName);
+    // 先更新文件类型，后续模式切换（switchEditorMode）会据此决定预览面板显隐
+    currentFileIsMarkdown = isMarkdownFile(fileName);
 
     console.log(`📁 文件类型: ${fileInfo.name}`);
     console.log(`📝 编辑器模式: ${editorMode}`);
 
-    // 3. 引擎选择
+    // 3. 引擎选择：非 Markdown 文本统一走 CodeMirror（纯文本 + 语法高亮），
+    //    避免 Vditor 把代码按 Markdown 解析（缩进会被吃掉）；Markdown 仅在超大时才降级为纯文本
     const isLarge = useLargeMode || byteLen >= LARGE_FILE_MODE_THRESHOLD;
-    if (isLarge) {
-      await enterLargeFileMode(text, filePath, byteLen);
+    if (isLarge || !currentFileIsMarkdown) {
+      await enterLargeFileMode(text, filePath, byteLen, { large: isLarge });
     } else {
       await exitLargeFileModeIfActive();
       if (editorInstance) {
@@ -338,14 +344,15 @@ async function loadFileIntoEditor(filePath) {
         if (prevByteLen >= LARGE_FILE_MODE_THRESHOLD) {
           editorInstance.setValue('');
         }
-        // 非 Markdown 文本（plain/code）使用 SV 源码模式（修复原 setMode 无效调用的语义缺失）
-        const targetMode = (editorMode === 'plain' || editorMode === 'code') ? 'sv' : 'ir';
+        const targetMode = 'ir';
         if (editorInstance.getCurrentMode && editorInstance.getCurrentMode() !== targetMode) {
           switchEditorMode(targetMode);
         }
         editorInstance.setValue(String(text || ''));
         updateWordCount(String(text || ''));
         adjustEditorForFileType(fileName);
+        // 已在 SV 模式下打开新文件时不会再走 switchEditorMode，这里补一次预览面板策略
+        applyPreviewModeForCurrentFile();
       }
     }
 
@@ -382,12 +389,25 @@ async function ensureLargeFileEditor() {
     // 动态 import：CM6 不进首屏 bundle（评审 P3，实测主 chunk 879KB→328KB）
     const { LargeFileEditor } = await import('./large-file-editor.js');
     largeFileEditor = new LargeFileEditor(document.getElementById('largeFileEditor'));
+    largeFileEditor.setOnChange(() => {
+      // 大文档打开时已做一次性统计，输入期间不再 O(n) 扫描
+      if (!largeFileMode || largeFileIsLarge) return;
+      clearTimeout(textWordCountTimer);
+      textWordCountTimer = setTimeout(() => {
+        if (largeFileMode && !largeFileIsLarge) updateWordCount();
+      }, 300);
+    });
   }
   return largeFileEditor;
 }
 
-async function enterLargeFileMode(text, filePath, byteLen) {
+/**
+ * 文本引擎入口（CodeMirror）：大文件、以及全部非 Markdown 文本 / 代码文件。
+ * options.large 决定横幅、「用富文本打开」按钮、一次性字数统计等大文件专属行为。
+ */
+async function enterLargeFileMode(text, filePath, byteLen, { large = true } = {}) {
   largeFileMode = true;
+  largeFileIsLarge = large;
   const session = ++largeFileSession;   // 会话令牌：区分一次性统计归属，防止大→大快速切换时旧统计覆盖新文档
 
   // 1. Vditor 容器隐藏并清空内容（实例保留避免重建成本，同时释放旧文档内存）
@@ -396,32 +416,47 @@ async function enterLargeFileMode(text, filePath, byteLen) {
     document.getElementById('vditor-container').style.display = 'none';
   }
 
-  // 大文件模式下提示职责由大文件横幅承担（vditor 容器已隐藏），
+  // 文本引擎下提示职责由横幅（大文件）或状态栏（普通文本）承担，
   // 未清除的旧提示条会错位悬浮在编辑区顶部
   removeFileTypeHint();
 
-  // 2. 显示大文件编辑区并填充（O(n) 字符串操作，无 Markdown 解析、无全量 DOM）
+  // 2. 显示文本编辑区并填充（O(n) 字符串操作，无 Markdown 解析、无全量 DOM）
   const lfe = await ensureLargeFileEditor();
+  const fileName = String(filePath || '').split(/[\\/]/).pop() || '';
+  lfe.setLanguage(currentFileIsMarkdown ? 'markdown' : getFileLanguage(fileName));
   lfe.setTheme(document.documentElement.getAttribute('data-theme') === 'dark');
   lfe.show();
   lfe.setValue(text, byteLen);
 
-  // 3. 横幅提示
+  // 3. 横幅只给大文件；「用富文本打开」只对 Markdown 大文件有意义
   const banner = document.getElementById('largeFileBanner');
-  if (banner) banner.hidden = false;
+  if (banner) banner.hidden = !large;
+  const richBtn = document.getElementById('btnRichTextMode');
+  if (richBtn) richBtn.hidden = !(large && currentFileIsMarkdown);
 
-  // 4. 首帧后做一次性字数统计（此后编辑期间不再实时更新，见 updateWordCount 门阔）
-  setTimeout(() => {
-    if (largeFileMode && session === largeFileSession) oneTimeWordCount(text);
-  }, 0);
+  // 4. 字数：大文件首帧后做一次性统计；普通文本文件按当前内容即时统计
+  if (large) {
+    setTimeout(() => {
+      if (largeFileMode && session === largeFileSession) oneTimeWordCount(text);
+    }, 0);
+  } else {
+    updateWordCount(text);
+  }
 
-  // 5. 大纲：正则提取标题（O(n)，约 10ms/MB），点击滚动到对应行
-  renderLargeFileOutline(text);
+  // 5. 大纲：仅 Markdown 有意义；代码/纯文本不渲染 Markdown 标题结构
+  if (currentFileIsMarkdown) {
+    renderLargeFileOutline(text);
+  } else {
+    setLargeOutlineVisible(false);
+  }
 }
 
+/** 退出文本引擎，恢复 Vditor 容器（Markdown 编辑器） */
 async function exitLargeFileModeIfActive() {
   if (!largeFileMode) return;
   largeFileMode = false;
+  largeFileIsLarge = false;
+  clearTimeout(textWordCountTimer);
   const banner = document.getElementById('largeFileBanner');
   if (banner) banner.hidden = true;
   setLargeOutlineVisible(false);
@@ -451,6 +486,14 @@ function getEditorValue() {
  * 导出 HTML：大文件模式下按需渲染（用户主动操作才付出全量渲染成本）
  */
 async function getHtmlForExport() {
+  if (largeFileMode && !currentFileIsMarkdown) {
+    // 代码/纯文本导出为转义后的 <pre>，不按 Markdown 渲染
+    const escaped = getEditorValue()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    return `<pre><code>${escaped}</code></pre>`;
+  }
   if (!largeFileMode) return editorInstance.getHTML();
   updateStatus('大文件模式：正在渲染 HTML（大文档可能较慢），请稍候…');
   await frame();
@@ -493,6 +536,7 @@ function switchEditorMode(mode) {
   const targetBtn = panel ? panel.querySelector(`button[data-mode="${mode}"]`) : null;
   if (targetBtn) {
     targetBtn.click();
+    applyPreviewModeForCurrentFile();
     return true;
   }
 
@@ -507,6 +551,7 @@ function switchEditorMode(mode) {
       host.dispatchEvent(new KeyboardEvent('keydown', {
         key: digit, code: `Digit${digit}`, altKey: true, ctrlKey: true, bubbles: true, cancelable: true
       }));
+      applyPreviewModeForCurrentFile();
       return true;
     }
   } catch (e) {
@@ -514,6 +559,19 @@ function switchEditorMode(mode) {
   }
   console.warn('⚠️ switchEditorMode 未能定位模式切换入口:', mode);
   return false;
+}
+
+/**
+ * SV 模式预览面板策略：Markdown 显示左侧源码 + 右侧预览；
+ * 纯文本 / 代码文件只看源码（内容不是 Markdown，预览没有意义，还可能把 <div> 等当 HTML 渲染）。
+ * 注意：Vditor 的 setPreviewMode 会把 SV 容器置为 display:block，
+ * 因此只能在当前已经是 SV 时调用，否则会在 IR 模式下错误地把源码面板显示出来。
+ */
+function applyPreviewModeForCurrentFile() {
+  if (!editorInstance || typeof editorInstance.setPreviewMode !== 'function') return;
+  if (typeof editorInstance.getCurrentMode !== 'function') return;
+  if (editorInstance.getCurrentMode() !== 'sv') return;
+  editorInstance.setPreviewMode(currentFileIsMarkdown ? 'both' : 'editor');
 }
 
 /**
@@ -537,6 +595,29 @@ function disableWysiwygMode() {
     event.preventDefault();
     event.stopPropagation();
     updateStatus('所见即所得模式已移除，请使用即时渲染或分屏预览');
+  }, true);
+}
+
+/**
+ * 模式菜单 / 快捷键切换后同步预览面板策略。
+ * 菜单按钮的点击由 Vditor 内部处理，不经过 switchEditorMode，所以需要单独挂监听；
+ * 内置 Ctrl/Cmd+Alt+9 同理，且不能在捕获阶段拦截，只能在同一轮事件结束后补一次。
+ */
+function bindPreviewModeToModeSwitch() {
+  const editBtn = document.querySelector('.vditor-toolbar [data-type="edit-mode"]');
+  const panel = editBtn ? editBtn.parentElement : null;
+  if (panel) {
+    panel.querySelectorAll('button[data-mode]').forEach((btn) => {
+      // Vditor 的点击处理器先注册，此处后执行，此时模式已经切换完成
+      btn.addEventListener('click', () => applyPreviewModeForCurrentFile());
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (!event.altKey || event.shiftKey) return;
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (event.code !== 'Digit9') return;
+    setTimeout(applyPreviewModeForCurrentFile, 0);
   }, true);
 }
 
@@ -878,6 +959,7 @@ function initVditor() {
       after: () => {
         console.log('✅ Vditor 编辑器已加载');
         disableWysiwygMode();
+        bindPreviewModeToModeSwitch();
         updateWordCount();
         // Vditor 渲染完成后才能找到 .vditor-outline，在此时初始化拖动条
         initOutlineResizer();
@@ -1051,9 +1133,11 @@ function setupEventListeners() {
       console.log('📄 新建文件');
       await exitLargeFileModeIfActive();
       lastLoadedByteLen = 0;
+      currentFileIsMarkdown = true;   // 新建文档固定为 Markdown，SV 下应恢复右侧预览
       if (editorInstance) {
         editorInstance.setValue('# 新文档\n\n开始编辑...', true);
         updateWordCount('# 新文档\n\n开始编辑...');
+        applyPreviewModeForCurrentFile();
       }
       currentFilePath = null;
       document.getElementById('filePath').textContent = '未保存';
@@ -1100,10 +1184,12 @@ function setupEventListeners() {
                   return;
                 }
                 const text = await file.text();
+                currentFileIsMarkdown = isMarkdownFile(file.name);
                 const byteLen = new TextEncoder().encode(text).length;
                 const prevByteLen = lastLoadedByteLen;
-                if (byteLen >= LARGE_FILE_MODE_THRESHOLD) {
-                  await enterLargeFileMode(text, file.name, byteLen);
+                const fallbackIsLarge = byteLen >= LARGE_FILE_MODE_THRESHOLD;
+                if (fallbackIsLarge || !currentFileIsMarkdown) {
+                  await enterLargeFileMode(text, file.name, byteLen, { large: fallbackIsLarge });
                 } else {
                   // 打开小文件必须退出大文件模式，否则 largeFileMode 仍为 true、
                   // getEditorValue() 会把旧大文件内容当成新文件保存（内容错配）
@@ -1114,6 +1200,7 @@ function setupEventListeners() {
                   if (editorInstance) {
                     editorInstance.setValue(text);
                     updateWordCount(text);
+                    applyPreviewModeForCurrentFile();
                   }
                 }
                 lastLoadedByteLen = byteLen;   // 成功打开后才提交门阔状态
@@ -1305,7 +1392,9 @@ function setupEventListeners() {
       exportMenu.style.display = 'none';
       if (!editorInstance) return;
       if (largeFileMode) {
-        updateStatus('大文件模式暂不支持 PDF 导出，请先点击横幅中的"用富文本打开"');
+        updateStatus(currentFileIsMarkdown
+          ? '大文件模式暂不支持 PDF 导出，请先点击横幅中的"用富文本打开"'
+          : '文本模式暂不支持 PDF 导出');
         return;
       }
       updateStatus('正在准备 PDF 导出...');
@@ -1343,8 +1432,12 @@ function setupEventListeners() {
   if (btnOutline) {
     btnOutline.addEventListener('click', () => {
       console.log('📑 触发切换大纲');
-      // 大文件模式：切换大文件大纲面板（vditor 的大纲在隐藏容器内，操作它无可见效果）
+      // 文本模式（CM6）：大纲只对 Markdown 有意义，vditor 的在隐藏容器内
       if (largeFileMode) {
+        if (!currentFileIsMarkdown) {
+          updateStatus('当前文件不是 Markdown，不支持大纲');
+          return;
+        }
         const largeOutline = document.getElementById('largeFileOutline');
         if (largeOutline) setLargeOutlineVisible(largeOutline.hidden);
         return;
@@ -1375,7 +1468,7 @@ function setupEventListeners() {
   const btnRichTextMode = document.getElementById('btnRichTextMode');
   if (btnRichTextMode) {
     btnRichTextMode.addEventListener('click', async () => {
-      if (!largeFileMode || !largeFileEditor) return;
+      if (!largeFileMode || !largeFileEditor || !currentFileIsMarkdown) return;
       const text = largeFileEditor.getValue();
       const kb = Math.round(new TextEncoder().encode(text).length / 1024);
       const estimatedSec = Math.max(2, Math.round((kb / 1024) * 5));
@@ -1387,6 +1480,7 @@ function setupEventListeners() {
       if (editorInstance) {
         editorInstance.setValue(text);
         updateWordCount(text);
+        applyPreviewModeForCurrentFile();
       }
       updateStatus(`已切换到富文本模式（${kb} KB）`);
     });
@@ -1495,7 +1589,16 @@ function updateWordCount(content) {
   if (!editorInstance && !largeFileMode) return;
 
   if (largeFileMode) {
-    setWordCountDisplay('—', '—');
+    // 文本引擎：小文本实时/按需统计；大文档由 enterLargeFileMode 做一次性统计
+    const text = content !== undefined
+      ? String(content || '')
+      : (largeFileEditor ? largeFileEditor.getValue() : '');
+    if (new TextEncoder().encode(text).length > WORDCOUNT_SKIP_THRESHOLD) {
+      setWordCountDisplay('—', '—');
+      return;
+    }
+    const textStats = computeWordStats(text);
+    setWordCountDisplay(textStats.total, textStats.paragraphs);
     return;
   }
 
@@ -1600,13 +1703,17 @@ window.isMarkdownFile = isMarkdownFile;
 window.getEditorMode = getEditorMode;
 window.getFileLanguage = getFileLanguage;
 
-// 测试钩子：供 e2e/性能测试直接驱动大文件模式（仅开发构建，不进生产包）
+// 测试钩子：供 e2e/性能测试直接驱动大文件模式与预览策略（仅开发构建，不进生产包）
 if (import.meta.env.DEV) {
   window._markeditTestHooks = {
     enterLargeFileMode,
     exitLargeFileModeIfActive,
     getEditorValue,
-    loadFileIntoEditor
+    loadFileIntoEditor,
+    setCurrentFileIsMarkdown: (value) => {
+      currentFileIsMarkdown = !!value;
+      applyPreviewModeForCurrentFile();
+    }
   };
 }
 
