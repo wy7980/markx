@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- 编辑模式收敛为「即时渲染 / 分屏预览」两种，移除「所见即所得」入口（工具栏菜单与 Ctrl/Cmd+Alt+7 均不再生效）
+
 ## [1.0.0] - 2024-04-04
 
 ### Added

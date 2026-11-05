@@ -103,7 +103,6 @@ describe('Toolbar 组件', () => {
         <div class="toolbar-divider"></div>
         <button class="toolbar-btn" id="btnSave">保存</button>
         <select class="toolbar-select" id="selectMode">
-          <option value="wysiwyg">所见即所得</option>
           <option value="ir">即时渲染</option>
           <option value="sv">分屏预览</option>
         </select>
@@ -119,7 +118,7 @@ describe('Toolbar 组件', () => {
   it('应该渲染模式选择器', () => {
     const select = getElement('#selectMode');
     expect(select).toBeDefined();
-    expect(select.options.length).toBe(3);
+    expect(select.options.length).toBe(2);
   });
 
   it('切换模式应该改变值', () => {

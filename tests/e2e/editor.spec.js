@@ -12,7 +12,7 @@ test.describe('编辑器基础功能', () => {
 
   test('应该能输入文本', async ({ page }) => {
     // Vditor 编辑器
-    const editor = page.locator('.vditor-wysiwyg pre.vditor-reset');
+    const editor = page.locator('.vditor-ir pre.vditor-reset');
     
     await editor.click();
     await page.keyboard.type('测试输入内容');
@@ -23,7 +23,7 @@ test.describe('编辑器基础功能', () => {
   });
 
   test('应该能输入标题', async ({ page }) => {
-    const editor = page.locator('.vditor-wysiwyg pre.vditor-reset');
+    const editor = page.locator('.vditor-ir pre.vditor-reset');
     
     await editor.click();
     await page.keyboard.type('# 测试标题');
@@ -36,7 +36,7 @@ test.describe('编辑器基础功能', () => {
   });
 
   test('应该能输入列表', async ({ page }) => {
-    const editor = page.locator('.vditor-wysiwyg pre.vditor-reset');
+    const editor = page.locator('.vditor-ir pre.vditor-reset');
     
     await editor.click();
     await page.keyboard.type('- 列表项一');
@@ -74,43 +74,44 @@ test.describe('格式化功能', () => {
 });
 
 test.describe('编辑器模式', () => {
-  test('所见即所得模式应该正常工作', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForSelector('.vditor-wysiwyg', { timeout: 15000 });
-    
-    const wysiwyg = page.locator('.vditor-wysiwyg');
-    await expect(wysiwyg).toBeVisible();
-  });
+  const switchMode = async (page, mode) => {
+    await page.locator('.vditor-toolbar [data-type="edit-mode"]').click();
+    await page.locator(`.vditor-toolbar button[data-mode="${mode}"]`).click();
+    await page.waitForTimeout(1000);
+  };
 
-  test('即时渲染模式应该正常工作', async ({ page }) => {
+  test('默认应该使用即时渲染模式', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.vditor', { timeout: 15000 });
-    
-    // 切换到即时渲染
-    const select = page.locator('#selectMode');
-    await select.selectOption('ir');
-    await page.waitForTimeout(1000);
-    
-    // 应该有即时渲染编辑器
-    const ir = page.locator('.vditor-ir');
-    // 检查是否存在于 DOM
-    const count = await ir.count();
-    expect(count).toBeGreaterThan(0);
+
+    await expect(page.locator('.vditor-ir pre.vditor-reset')).toBeVisible();
   });
 
-  test('分屏预览模式应该正常工作', async ({ page }) => {
+  test('编辑模式菜单应该只提供即时渲染与分屏预览', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('.vditor', { timeout: 15000 });
-    
-    // 切换到分屏预览
-    const select = page.locator('#selectMode');
-    await select.selectOption('sv');
-    await page.waitForTimeout(1000);
-    
-    // 应该有分屏编辑器
-    const sv = page.locator('.vditor-sv');
-    const count = await sv.count();
-    expect(count).toBeGreaterThan(0);
+
+    await page.locator('.vditor-toolbar [data-type="edit-mode"]').click();
+    await expect(page.locator('.vditor-toolbar button[data-mode="ir"]')).toBeVisible();
+    await expect(page.locator('.vditor-toolbar button[data-mode="sv"]')).toBeVisible();
+    await expect(page.locator('.vditor-toolbar button[data-mode="wysiwyg"]')).toHaveCount(0);
+  });
+
+  test('应该切换到分屏预览模式', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.vditor', { timeout: 15000 });
+
+    await switchMode(page, 'sv');
+    await expect(page.locator('.vditor-sv')).toBeVisible();
+  });
+
+  test('应该能从分屏预览切回即时渲染', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForSelector('.vditor', { timeout: 15000 });
+
+    await switchMode(page, 'sv');
+    await switchMode(page, 'ir');
+    await expect(page.locator('.vditor-ir pre.vditor-reset')).toBeVisible();
   });
 });
 
@@ -125,7 +126,7 @@ test.describe('大纲更新', () => {
     await page.waitForTimeout(300);
     
     // 输入标题
-    const editor = page.locator('.vditor-wysiwyg pre.vditor-reset');
+    const editor = page.locator('.vditor-ir pre.vditor-reset');
     await editor.click();
     await page.keyboard.type('# 新标题');
     await page.keyboard.press('Enter');

@@ -256,8 +256,8 @@ describe('工具栏交互', () => {
         <button class="toolbar-btn" data-action="italic">I</button>
         <button class="toolbar-btn" data-action="strikethrough">S</button>
         <select class="toolbar-select" id="selectMode">
-          <option value="wysiwyg">所见即所得</option>
           <option value="ir">即时渲染</option>
+          <option value="sv">分屏预览</option>
         </select>
       </div>
     `);

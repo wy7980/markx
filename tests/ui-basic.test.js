@@ -151,28 +151,36 @@ test.describe('MarkEdit UI 基本功能测试', () => {
   });
 
   test('7. 编辑模式切换', async ({ page }) => {
-    // 查找编辑模式选择器
-    const modeSelect = await page.$('#selectMode');
-    expect(modeSelect).toBeTruthy();
-    
-    // 获取当前模式
-    const currentMode = await modeSelect.inputValue();
-    
-    // 切换模式
-    await modeSelect.selectOption('ir'); // 即时渲染模式
+    // 打开工具栏的编辑模式菜单
+    const modeBtn = await page.$('.vditor-toolbar [data-type="edit-mode"]');
+    expect(modeBtn).toBeTruthy();
+
+    // 切换到分屏预览
+    await modeBtn.click();
+    await page.waitForTimeout(300);
+    const svBtn = await page.$('.vditor-toolbar button[data-mode="sv"]');
+    expect(svBtn).toBeTruthy();
+    await svBtn.click();
     await page.waitForTimeout(1000);
-    
+
     // 截图：模式切换后
     await page.screenshot({ path: 'test-results/09-after-mode-change.png', fullPage: true });
-    
-    // 验证编辑器仍然可用
-    const editor = await page.$('#vditor');
+
+    // 验证编辑器仍然可用（SV 模式的可编辑元素就是 .vditor-sv 本身）
+    const editor = await page.$('.vditor-sv');
+    expect(editor).toBeTruthy();
     await editor.click();
     await page.keyboard.type('模式切换测试');
     await page.waitForTimeout(500);
-    
-    // 切换回原模式
-    await modeSelect.selectOption(currentMode);
+
+    // 切回即时渲染
+    await modeBtn.click();
+    await page.waitForTimeout(300);
+    const irBtn = await page.$('.vditor-toolbar button[data-mode="ir"]');
+    expect(irBtn).toBeTruthy();
+    await irBtn.click();
+    await page.waitForTimeout(500);
+    expect(await page.$('.vditor-ir')).toBeTruthy();
   });
 
   test('8. 侧边栏切换', async ({ page }) => {

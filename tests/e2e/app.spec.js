@@ -111,16 +111,18 @@ test.describe('编辑模式切换', () => {
     await page.waitForTimeout(500);
   });
 
-  test('应该切换编辑模式', async ({ page }) => {
-    const select = page.locator('#selectMode');
-    
-    // 切换到即时渲染
-    await select.selectOption('ir');
-    await expect(select).toHaveValue('ir');
-    
+  test('应该在即时渲染与分屏预览之间切换', async ({ page }) => {
+    const editModeBtn = page.locator('.vditor-toolbar [data-type="edit-mode"]');
+
     // 切换到分屏预览
-    await select.selectOption('sv');
-    await expect(select).toHaveValue('sv');
+    await editModeBtn.click();
+    await page.locator('.vditor-toolbar button[data-mode="sv"]').click();
+    await expect(page.locator('.vditor-sv')).toBeVisible();
+
+    // 切回即时渲染
+    await editModeBtn.click();
+    await page.locator('.vditor-toolbar button[data-mode="ir"]').click();
+    await expect(page.locator('.vditor-ir pre.vditor-reset')).toBeVisible();
   });
 });
 

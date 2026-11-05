@@ -476,10 +476,16 @@ async function getHtmlForExport() {
 
 /**
  * 编辑模式切换：vditor 3.11.2 无 setMode 公开 API（原代码调用会 TypeError），
- * 通过内置 edit-mode 子菜单按钮触发；兑底：内置快捷键 Ctrl/Cmd+Alt+7/8/9
+ * 通过内置 edit-mode 子菜单按钮触发；兑底：内置快捷键 Ctrl/Cmd+Alt+8/9
+ *
+ * 方案 A：仅保留即时渲染（IR）与分屏预览（SV），wysiwyg 已移除，见 disableWysiwygMode()
  */
 function switchEditorMode(mode) {
   if (!editorInstance) return false;
+  if (mode === 'wysiwyg') {
+    console.warn('⚠️ 所见即所得模式已移除，仅支持即时渲染 / 分屏预览');
+    return false;
+  }
   if (editorInstance.getCurrentMode && editorInstance.getCurrentMode() === mode) return true;
 
   const editBtn = document.querySelector('.vditor-toolbar [data-type="edit-mode"]');
@@ -492,7 +498,7 @@ function switchEditorMode(mode) {
 
   try {
     editorInstance.focus();
-    const digit = mode === 'wysiwyg' ? '7' : (mode === 'sv' ? '9' : '8');
+    const digit = mode === 'sv' ? '9' : '8';
     // vditor 的 keydown 监听绑在内层可编辑元素上；DOM 事件只向上冒泡，
     // 派发到外层 .vditor-content 永远到不了监听器
     const host = document.querySelector('.vditor-content [contenteditable="true"]')
@@ -508,6 +514,30 @@ function switchEditorMode(mode) {
   }
   console.warn('⚠️ switchEditorMode 未能定位模式切换入口:', mode);
   return false;
+}
+
+/**
+ * 方案 A：移除 Vditor 内置的“所见即所得”模式入口。
+ * 1. 删掉 edit-mode 子菜单里的 wysiwyg 按钮（按钮由 Vditor 生成，无法通过配置关闭）；
+ * 2. 在捕获阶段拦截 Ctrl/Cmd+Alt+7 —— Vditor 把该快捷键直接绑在内层可编辑元素上，
+ *    仅隐藏按钮仍可通过快捷键切到已移除的模式。
+ */
+function disableWysiwygMode() {
+  const editBtn = document.querySelector('.vditor-toolbar [data-type="edit-mode"]');
+  const panel = editBtn ? editBtn.parentElement : null;
+  const wysiwygBtn = panel ? panel.querySelector('button[data-mode="wysiwyg"]') : null;
+  if (wysiwygBtn) {
+    wysiwygBtn.remove();
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (!event.altKey || event.shiftKey) return;
+    if (!event.ctrlKey && !event.metaKey) return;
+    if (event.code !== 'Digit7' && event.key !== '7') return;
+    event.preventDefault();
+    event.stopPropagation();
+    updateStatus('所见即所得模式已移除，请使用即时渲染或分屏预览');
+  }, true);
 }
 
 /** 大文件模式大纲：逐行扫描提取标题（排除代码围栏内的 # 行；CRLF 安全；均摊 O(n)） */
@@ -847,6 +877,7 @@ function initVditor() {
       })(),
       after: () => {
         console.log('✅ Vditor 编辑器已加载');
+        disableWysiwygMode();
         updateWordCount();
         // Vditor 渲染完成后才能找到 .vditor-outline，在此时初始化拖动条
         initOutlineResizer();
