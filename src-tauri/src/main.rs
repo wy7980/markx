@@ -174,6 +174,33 @@ fn main() {
                 emit_open_file(app_handle, &file_path, "single-instance");
             }
         }))
+        .setup(|app| {
+            // Windows 使用前端自绘标题栏；macOS 继续保留原生交通灯。
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.set_decorations(false) {
+                    eprintln!("设置无边框窗口失败：{}", error);
+                }
+
+                // 高 DPI 下 1200x800 可能超出可用工作区，压缩到任务栏之上。
+                if let Ok(Some(monitor)) = window.current_monitor() {
+                    let scale = monitor.scale_factor();
+                    let work = monitor.work_area();
+                    let max_width = (work.size.width as f64 / scale - 40.0).max(800.0);
+                    let max_height = (work.size.height as f64 / scale - 40.0).max(560.0);
+                    if let Ok(size) = window.inner_size() {
+                        let logical = size.to_logical::<f64>(scale);
+                        if logical.width > max_width || logical.height > max_height {
+                            let _ = window.set_size(tauri::LogicalSize::new(
+                                logical.width.min(max_width),
+                                logical.height.min(max_height),
+                            ));
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
         .manage(app_state)
         .manage(commands::large_file::EngineState::new())
         .invoke_handler(tauri::generate_handler![

@@ -64,7 +64,8 @@ export class LargeFileViewer {
       resultCount: root.querySelector('#logResultCount'),
       jumpInput: root.querySelector('#logJumpInput'),
       jumpBtn: root.querySelector('#logJumpBtn'),
-      reloadBtn: root.querySelector('#logReloadBtn')
+      reloadBtn: root.querySelector('#logReloadBtn'),
+      copyPath: root.querySelector('#logCopyPath')
     };
 
     this.sessionId = null;
@@ -112,6 +113,15 @@ export class LargeFileViewer {
     });
     this.dom.jumpBtn.addEventListener('click', () => this.jumpFromInput());
     this.dom.reloadBtn.addEventListener('click', () => void this.reload());
+    this.dom.copyPath?.addEventListener('click', async () => {
+      if (!this.path) return;
+      try {
+        await navigator.clipboard.writeText(this.path);
+        this.setStatus('已复制文件路径');
+      } catch {
+        this.setStatus('复制路径失败');
+      }
+    });
     this.dom.jumpInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -743,7 +753,8 @@ export class LargeFileViewer {
         this.setSearchStatus(`搜索失败: ${event.error}`);
       } else {
         const total = event.total ?? this.searchHits.length;
-        this.setSearchStatus(`${total} 条${event.cancelled ? '（已取消）' : ''}`);
+        const truncated = total >= 5000 ? '（已达 5000 条上限）' : '';
+        this.setSearchStatus(`${total} 条${truncated}${event.cancelled ? '（已取消）' : ''}`);
       }
       if (event.taskId) {
         void this.invoke('large_file_search_release', { taskId: event.taskId }).catch(() => {});
@@ -777,7 +788,8 @@ export class LargeFileViewer {
         this.searchTaskId = null;
         this.dom.searchCancel.hidden = true;
         const suffix = page.cancelled ? '（已取消）' : '';
-        this.setSearchStatus(`${this.searchHits.length} 条${suffix}`);
+        const truncated = this.searchHits.length >= 5000 ? '（已达 5000 条上限）' : '';
+        this.setSearchStatus(`${this.searchHits.length} 条${truncated}${suffix}`);
         void this.invoke('large_file_search_release', { taskId }).catch(() => {});
         return;
       }

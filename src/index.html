@@ -17,38 +17,71 @@
     </div>
   </div>
 
-  <div class="app">
+  <div class="window-shell">
+    <!-- Windows 自绘标题栏；macOS 保留原生标题栏 -->
+    <header class="window-titlebar" id="windowTitlebar" hidden>
+      <div class="window-titlebar__drag" id="windowTitleDrag">
+        <span class="window-titlebar__logo">M</span>
+        <span class="window-titlebar__brand">MarkEdit</span>
+        <span class="window-titlebar__divider" id="windowTitleDivider" hidden>·</span>
+        <span class="window-titlebar__title" id="windowTitle" hidden></span>
+      </div>
+      <div class="window-titlebar__controls">
+        <button type="button" class="window-titlebar__btn" id="btnWindowMinimize" title="最小化" aria-label="最小化">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button type="button" class="window-titlebar__btn" id="btnWindowMaximize" title="最大化" aria-label="最大化">
+          <svg class="icon-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="6" y="6" width="12" height="12" rx="1"></rect>
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="8" y="4" width="12" height="12" rx="1"></rect>
+            <path d="M8 8H4v12h12v-4"></path>
+          </svg>
+        </button>
+        <button type="button" class="window-titlebar__btn window-titlebar__btn--close" id="btnWindowClose" title="关闭" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M6 6l12 12M18 6L6 18"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="logo">
-          <div class="logo-icon">M</div>
-          <span>MarkEdit</span>
+        <span class="sidebar-title">工作区</span>
+        <div class="sidebar-actions">
+          <button id="btnOpenFolder" class="sidebar-icon-btn" title="打开文件夹" aria-label="打开文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+          <button id="btnNew" class="sidebar-icon-btn" title="新建文档" aria-label="新建文档">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <button id="btnRefreshFolder" class="sidebar-icon-btn" title="刷新文件列表" aria-label="刷新文件列表">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+          </button>
         </div>
       </div>
-      <div class="sidebar-folder" id="sidebarFolder" style="display: none; padding: 6px 10px 6px 15px; font-size: 13px; color: var(--text-secondary, #666); border-bottom: 1px solid var(--border-color, #eee); box-sizing: border-box; display: flex; align-items: center;">
-        <svg fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" viewBox="0 0 24 24" style="flex-shrink: 0; margin-right: 5px;">
+      <div class="sidebar-folder" id="sidebarFolder" style="display: none;">
+        <svg class="sidebar-folder__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
         </svg>
-        <span id="folderName" style="font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">文件夹</span>
-        <button id="btnRefreshFolder" class="btn-refresh-folder" title="刷新文件列表">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-          </svg>
-        </button>
+        <span id="folderName">文件夹</span>
       </div>
       <div class="file-list" id="fileList">
         <!-- 文件列表动态生成 -->
-      </div>
-      <div class="sidebar-footer">
-        <button class="btn-new" id="btnNew">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          新建文档
-        </button>
       </div>
     </aside>
 
@@ -102,6 +135,13 @@
           </div>
         </div>
 
+        <button class="toolbar-btn" id="btnQuickOpen" title="快速搜索 (Ctrl+P)" aria-label="快速搜索">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.3-4.3"></path>
+          </svg>
+        </button>
+
         <div class="toolbar-spacer"></div>
 
         <div class="toolbar-group">
@@ -131,7 +171,34 @@
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
             </svg>
           </button>
+          <button class="toolbar-btn" id="btnSettings" title="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.51 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.1.38.32.72.6 1 .3.26.68.4 1.1.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.6z"></path>
+            </svg>
+          </button>
         </div>
+      </div>
+
+      <!-- Document Tabs -->
+      <div id="documentTabs" class="doc-tabs" hidden>
+        <div id="tabList" class="doc-tabs__list"></div>
+        <button id="tabOverflowBtn" class="doc-tabs__overflow" type="button" title="显示全部标签页" aria-label="显示全部标签页" hidden>⌄</button>
+        <button id="tabNewBtn" class="doc-tabs__new" type="button" title="新建标签页" aria-label="新建标签页">+</button>
+        <div id="tabOverflowMenu" class="tab-overflow-menu" hidden></div>
+      </div>
+
+      <!-- Find / Replace -->
+      <div id="findBar" class="find-bar" hidden>
+        <input id="findInput" class="find-bar__input" type="text" placeholder="查找" autocomplete="off" />
+        <span id="findStatus" class="find-bar__status">0 处</span>
+        <button id="findPrev" class="find-bar__btn" type="button" title="上一个 (Shift+Enter)">↑</button>
+        <button id="findNext" class="find-bar__btn" type="button" title="下一个 (Enter)">↓</button>
+        <button id="findClose" class="find-bar__btn" type="button" title="关闭 (Esc)">×</button>
+        <span class="find-bar__divider"></span>
+        <input id="replaceInput" class="find-bar__input" type="text" placeholder="替换为" autocomplete="off" />
+        <button id="replaceOne" class="find-bar__btn find-bar__btn--text" type="button">替换</button>
+        <button id="replaceAllBtn" class="find-bar__btn find-bar__btn--text" type="button">全部</button>
       </div>
 
       <!-- Editor Container -->
@@ -153,6 +220,7 @@
               <div class="log-jump">
                 <input id="logJumpInput" class="log-jump__input" type="number" min="1" placeholder="行号" />
                 <button id="logJumpBtn" class="log-toolbar__btn" type="button">跳转</button>
+                <button id="logCopyPath" class="log-toolbar__btn" type="button">复制路径</button>
                 <button id="logReloadBtn" class="log-toolbar__btn" type="button" hidden>重新加载</button>
               </div>
               <span id="logViewerStatus" class="log-status">索引中…</span>
@@ -197,9 +265,13 @@
           <span id="filePath" class="status-path" title="当前文件路径">未保存</span>
           <span class="status-divider">|</span>
           <span id="statusText" class="status-msg">就绪</span>
+          <span class="status-divider">|</span>
+          <span id="statusEncoding" class="status-item">UTF-8</span>
+          <span id="statusEol" class="status-item">LF</span>
         </div>
         
         <div class="status-right">
+          <span class="status-item" id="statusCursor">Ln 1, Col 1</span>
           <span class="status-item" title="文档字数">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="4" y1="7" x2="20" y2="7"></line>
@@ -217,9 +289,23 @@
             </svg>
             段落: <strong id="paraCount">0</strong>
           </span>
+          <span class="status-item" id="statusLanguage" title="文件语言">Markdown</span>
         </div>
       </div>
     </main>
+    </div>
+
+    <!-- 无边框窗口边缘拖拽缩放 -->
+    <div class="window-resize-handles" id="windowResizeHandles" hidden>
+      <div class="window-resize-handle window-resize-handle--n" data-resize="North"></div>
+      <div class="window-resize-handle window-resize-handle--s" data-resize="South"></div>
+      <div class="window-resize-handle window-resize-handle--e" data-resize="East"></div>
+      <div class="window-resize-handle window-resize-handle--w" data-resize="West"></div>
+      <div class="window-resize-handle window-resize-handle--ne" data-resize="NorthEast"></div>
+      <div class="window-resize-handle window-resize-handle--nw" data-resize="NorthWest"></div>
+      <div class="window-resize-handle window-resize-handle--se" data-resize="SouthEast"></div>
+      <div class="window-resize-handle window-resize-handle--sw" data-resize="SouthWest"></div>
+    </div>
   </div>
 
   <!-- Context Menu -->
@@ -240,6 +326,59 @@
     <div class="menu-item danger" id="menuDelete">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
       永久删除
+    </div>
+  </div>
+
+  <!-- Windows snap menu -->
+  <div id="snapMenu" class="snap-menu" hidden>
+    <button type="button" data-snap="left">左半屏</button>
+    <button type="button" data-snap="right">右半屏</button>
+    <button type="button" data-snap="maximize">最大化</button>
+    <button type="button" data-snap="restore">还原</button>
+  </div>
+
+  <!-- Tab context menu -->
+  <div id="tabContextMenu" class="context-menu tab-context-menu" hidden>
+    <div class="menu-item" data-tab-action="close">关闭</div>
+    <div class="menu-item" data-tab-action="close-others">关闭其他</div>
+    <div class="menu-item" data-tab-action="close-right">关闭右侧</div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" data-tab-action="copy-path">复制路径</div>
+  </div>
+
+  <!-- Settings dialog -->
+  <div id="settingsDialog" class="settings-dialog" hidden>
+    <div class="settings-card" role="dialog" aria-label="设置">
+      <div class="settings-card__header">
+        <strong>设置</strong>
+        <button id="settingsClose" class="settings-card__close" type="button" aria-label="关闭设置">×</button>
+      </div>
+      <label class="settings-row">
+        <span>自动保存</span>
+        <input id="settingAutosave" type="checkbox" />
+      </label>
+      <label class="settings-row">
+        <span>主题</span>
+        <select id="settingTheme">
+          <option value="system">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </label>
+      <label class="settings-row">
+        <span>编辑字号</span>
+        <input id="settingFontSize" type="number" min="12" max="22" step="1" />
+      </label>
+      <div class="settings-card__hint">自动保存仅对已保存到磁盘的文件生效；未命名文档会保留在当前会话中。</div>
+    </div>
+  </div>
+
+  <!-- Quick open palette -->
+  <div id="quickOpen" class="quick-open" hidden>
+    <div class="quick-open__dialog" role="dialog" aria-label="快速打开">
+      <input id="quickOpenInput" class="quick-open__input" type="text" placeholder="搜索文件、标签页，或输入 > 执行命令…" autocomplete="off" />
+      <div id="quickOpenList" class="quick-open__list"></div>
+      <div class="quick-open__hint">↑↓ 选择 · Enter 打开 · > 命令 · Esc 关闭</div>
     </div>
   </div>
 

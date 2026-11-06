@@ -7,6 +7,8 @@ import { readTextFile, writeTextFile, readDir, rename, remove, size as fileSize 
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow, currentMonitor, LogicalPosition, LogicalSize } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import Vditor from 'vditor';
 import 'vditor/dist/index.css';
 
@@ -58,6 +60,29 @@ let largeFileSession = 0;        // 大文件模式会话序号（一次性统�
 let textWordCountTimer = null;   // 文本引擎下字数统计防抖定时器
 let logViewer = null;            // 超大文件只读查看器（惰性创建）
 let logViewerActive = false;     // 当前是否由只读查看器接管
+
+// 多标签页 / 文档状态
+let documentTabs = [];
+let activeTabId = null;
+let tabSeq = 0;
+let switchingTab = false;        // 切换标签时抑制 dirty 标记
+
+// 会话与自动保存
+const SESSION_KEY = 'markedit-session-v2';
+const SESSION_CONTENT_BUDGET = 8 * 1024 * 1024;
+const AUTOSAVE_MAX_BYTES = 2 * 1024 * 1024;
+let sessionPersistTimer = null;
+let autosaveTimer = null;
+let restoringSession = false;
+
+// 快速打开面板
+let quickOpenItems = [];
+let quickOpenFiltered = [];
+let quickOpenIndex = 0;
+
+// 标签页交互
+let draggedTabId = null;
+let tabContextTargetId = null;
 
 // 规范化来自系统事件/命令行的文件路径
 function normalizeIncomingFilePath(rawPath) {
@@ -285,6 +310,919 @@ async function openFileFromPath(filePath) {
   return result;
 }
 
+// ── 多标签页 / 文档状态 ────────────────────────────────
+
+function getActiveTab() {
+  return documentTabs.find((tab) => tab.id === activeTabId) || null;
+}
+
+function findTabByPath(path) {
+  if (!path) return null;
+  return documentTabs.find((tab) => tab.path === path) || null;
+}
+
+function detectEol(text) {
+  const value = String(text || '');
+  const crlf = (value.match(/\r\n/g) || []).length;
+  const lf = (value.match(/\n/g) || []).length;
+  return crlf > 0 && crlf >= lf - crlf ? 'CRLF' : 'LF';
+}
+
+function createTabRecord({
+  path = null,
+  name = '未命名',
+  fileInfo = null,
+  kind = 'vditor',
+  content = '',
+  byteLen = null,
+  isMarkdown = true
+}) {
+  const text = String(content || '');
+  const info = fileInfo || getFileType(name.endsWith('.md') ? name : '未命名.md');
+  return {
+    id: `tab-${++tabSeq}`,
+    path,
+    name,
+    fileInfo: info,
+    kind,
+    content: text,
+    byteLen: byteLen == null ? new TextEncoder().encode(text).length : byteLen,
+    isMarkdown,
+    eol: kind === 'viewer' ? null : detectEol(text),
+    dirty: false,
+    cursor: null,
+    scrollTop: 0,
+    cm6State: null
+  };
+}
+
+function syncTabGlobals(tab) {
+  currentFilePath = tab.path;
+  currentFileIsMarkdown = tab.isMarkdown;
+  lastLoadedByteLen = tab.byteLen;
+}
+
+function updateDocumentStatus() {
+  const tab = getActiveTab();
+  const language = document.getElementById('statusLanguage');
+  const encoding = document.getElementById('statusEncoding');
+  const eol = document.getElementById('statusEol');
+  const cursor = document.getElementById('statusCursor');
+  if (!language || !encoding || !eol || !cursor) return;
+
+  if (!tab) {
+    language.textContent = '—';
+    encoding.textContent = '—';
+    eol.textContent = '—';
+    cursor.textContent = 'Ln —, Col —';
+    return;
+  }
+
+  language.textContent = tab.fileInfo?.name || '文本';
+  encoding.textContent = 'UTF-8';
+  eol.textContent = tab.eol || '—';
+
+  if (tab.kind === 'cm6' && largeFileEditor) {
+    const position = largeFileEditor.getCursor();
+    cursor.textContent = `Ln ${position.line}, Col ${position.col}`;
+  } else if (tab.kind === 'vditor') {
+    const position = getVditorCursor();
+    cursor.textContent = position
+      ? `Ln ${position.line}, Col ${position.col}`
+      : 'Ln —, Col —';
+  } else {
+    cursor.textContent = 'Ln —, Col —';
+  }
+}
+
+/** 从 Vditor IR/SV 的 DOM 选区估算光标行列（块按行、br 按软换行）。 */
+function getVditorCursor() {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+
+  const root =
+    document.querySelector('.vditor-ir pre.vditor-reset') ||
+    document.querySelector('.vditor-sv');
+  if (!root || !root.contains(range.startContainer)) return null;
+
+  const startElement =
+    range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer;
+  const block = startElement?.closest?.('[data-block]') || startElement;
+  if (!block) return null;
+
+  const blocks = [...root.children].filter(
+    (element) => element.nodeType === Node.ELEMENT_NODE
+  );
+  const blockIndex = blocks.indexOf(block);
+
+  try {
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEnd(range.startContainer, range.startOffset);
+    const fragment = before.cloneContents();
+    const holder = document.createElement('div');
+    holder.appendChild(fragment);
+    holder.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+    const text = holder.textContent || '';
+    const lines = text.split('\n');
+    return {
+      line: (blockIndex >= 0 ? blockIndex + 1 : 1) + lines.length - 1,
+      col: lines[lines.length - 1].length + 1
+    };
+  } catch {
+    return null;
+  }
+}
+
+function renderTabs() {
+  const bar = document.getElementById('documentTabs');
+  const list = document.getElementById('tabList');
+  if (!bar || !list) return;
+
+  bar.hidden = documentTabs.length === 0;
+  list.replaceChildren();
+
+  for (const tab of documentTabs) {
+    const tabEl = document.createElement('div');
+    tabEl.className = `doc-tab${tab.id === activeTabId ? ' active' : ''}${tab.dirty ? ' dirty' : ''}`;
+    tabEl.dataset.tabId = tab.id;
+    tabEl.title = tab.path || tab.name;
+
+    const dirty = document.createElement('span');
+    dirty.className = 'doc-tab__dirty';
+
+    const name = document.createElement('span');
+    name.className = 'doc-tab__name';
+    name.textContent = tab.name;
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'doc-tab__close';
+    close.textContent = '×';
+    close.title = `关闭 ${tab.name}`;
+    close.setAttribute('aria-label', `关闭 ${tab.name}`);
+    close.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void closeTab(tab.id);
+    });
+
+    tabEl.append(dirty, name, close);
+    tabEl.draggable = true;
+    close.draggable = false;
+    tabEl.addEventListener('click', () => void activateTab(tab.id));
+    tabEl.addEventListener('auxclick', (event) => {
+      if (event.button === 1) {
+        event.preventDefault();
+        void closeTab(tab.id);
+      }
+    });
+    tabEl.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showTabContextMenu(event, tab);
+    });
+    tabEl.addEventListener('dragstart', (event) => {
+      draggedTabId = tab.id;
+      tabEl.classList.add('dragging');
+      event.dataTransfer?.setData('text/plain', tab.id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    tabEl.addEventListener('dragend', () => {
+      draggedTabId = null;
+      tabEl.classList.remove('dragging');
+    });
+    tabEl.addEventListener('dragover', (event) => {
+      if (!draggedTabId || draggedTabId === tab.id) return;
+      event.preventDefault();
+      tabEl.classList.add('drag-over');
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    });
+    tabEl.addEventListener('dragleave', () => {
+      tabEl.classList.remove('drag-over');
+    });
+    tabEl.addEventListener('drop', (event) => {
+      event.preventDefault();
+      tabEl.classList.remove('drag-over');
+      const fromId = draggedTabId || event.dataTransfer?.getData('text/plain');
+      if (fromId && fromId !== tab.id) reorderTab(fromId, tab.id);
+    });
+    list.appendChild(tabEl);
+  }
+
+  const activeEl = list.querySelector('.doc-tab.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateWindowTitle();
+  requestAnimationFrame(updateTabOverflow);
+}
+
+function reorderTab(fromId, toId) {
+  const from = documentTabs.findIndex((tab) => tab.id === fromId);
+  const to = documentTabs.findIndex((tab) => tab.id === toId);
+  if (from < 0 || to < 0 || from === to) return;
+  const [moved] = documentTabs.splice(from, 1);
+  documentTabs.splice(to, 0, moved);
+  renderTabs();
+  scheduleSessionPersist();
+}
+
+function updateTabOverflow() {
+  const list = document.getElementById('tabList');
+  const btn = document.getElementById('tabOverflowBtn');
+  const menu = document.getElementById('tabOverflowMenu');
+  if (!list || !btn || !menu) return;
+  const overflow = list.scrollWidth > list.clientWidth + 1;
+  btn.hidden = !overflow;
+  if (!overflow) {
+    btn.classList.remove('active');
+    menu.hidden = true;
+  }
+}
+
+function renderTabOverflowMenu() {
+  const menu = document.getElementById('tabOverflowMenu');
+  if (!menu) return;
+  menu.replaceChildren();
+  for (const tab of documentTabs) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `tab-overflow-item${tab.id === activeTabId ? ' active' : ''}`;
+    const name = document.createElement('span');
+    name.className = 'tab-overflow-item__name';
+    name.textContent = tab.name;
+    item.appendChild(name);
+    if (tab.dirty) {
+      const dot = document.createElement('span');
+      dot.className = 'tab-overflow-item__dirty';
+      item.appendChild(dot);
+    }
+    item.addEventListener('click', () => {
+      menu.hidden = true;
+      document.getElementById('tabOverflowBtn')?.classList.remove('active');
+      void activateTab(tab.id);
+    });
+    menu.appendChild(item);
+  }
+}
+
+function showTabContextMenu(event, tab) {
+  const menu = document.getElementById('tabContextMenu');
+  if (!menu) return;
+  tabContextTargetId = tab.id;
+  menu.hidden = false;
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(event.clientX, window.innerWidth - rect.width - 8);
+  const top = Math.min(event.clientY, window.innerHeight - rect.height - 8);
+  menu.style.left = `${Math.max(4, left)}px`;
+  menu.style.top = `${Math.max(4, top)}px`;
+}
+
+function hideTabContextMenu() {
+  const menu = document.getElementById('tabContextMenu');
+  if (menu) menu.hidden = true;
+  tabContextTargetId = null;
+}
+
+async function closeTabsWithConfirm(ids) {
+  const tabs = ids
+    .map((id) => documentTabs.find((tab) => tab.id === id))
+    .filter(Boolean);
+  if (tabs.length === 0) return;
+  const dirty = tabs.filter((tab) => tab.dirty);
+  if (dirty.length > 0) {
+    const names = dirty.slice(0, 5).map((tab) => tab.name).join('、');
+    if (!confirm(`以下文档有未保存修改：${names}。\n关闭将丢失这些修改，是否继续？`)) return;
+  }
+  for (const tab of tabs) {
+    await closeTab(tab.id, { force: true });
+  }
+}
+
+function closeOtherTabs(id) {
+  return closeTabsWithConfirm(documentTabs.filter((tab) => tab.id !== id).map((tab) => tab.id));
+}
+
+function closeTabsToRight(id) {
+  const index = documentTabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return Promise.resolve();
+  return closeTabsWithConfirm(documentTabs.slice(index + 1).map((tab) => tab.id));
+}
+
+function updateWindowTitle() {
+  const title = document.getElementById('windowTitle');
+  const divider = document.getElementById('windowTitleDivider');
+  const tab = getActiveTab();
+  const dirty = tab?.dirty ? '● ' : '';
+
+  if (title) {
+    title.hidden = !tab;
+    title.textContent = tab ? `${dirty}${tab.name}` : '';
+    title.title = tab?.path || tab?.name || 'MarkEdit';
+  }
+  if (divider) divider.hidden = !tab;
+
+  document.title = tab
+    ? `${dirty}${tab.name} - MarkEdit`
+    : 'MarkEdit';
+}
+
+function updateFileListActive(path) {
+  document.querySelectorAll('.file-item').forEach((item) => {
+    item.classList.toggle('active', Boolean(path && item.dataset.path === path));
+  });
+}
+
+function dropPristineUntitledTab() {
+  if (documentTabs.length !== 1) return;
+  const tab = documentTabs[0];
+  if (!tab.path && !tab.dirty && tab.kind === 'vditor') {
+    documentTabs = [];
+    activeTabId = null;
+    renderTabs();
+  }
+}
+
+function ensureInitialTab() {
+  if (documentTabs.length > 0) return;
+  const content = editorInstance ? editorInstance.getValue() : '';
+  const tab = createTabRecord({
+    name: '未命名',
+    fileInfo: getFileType('未命名.md'),
+    kind: 'vditor',
+    content,
+    isMarkdown: true
+  });
+  documentTabs.push(tab);
+  activeTabId = tab.id;
+  syncTabGlobals(tab);
+  renderTabs();
+  updateDocumentStatus();
+}
+
+function snapshotActiveTab() {
+  const tab = getActiveTab();
+  if (!tab || tab.kind === 'viewer') return;
+
+  let content = null;
+  if (tab.kind === 'cm6' && largeFileEditor) {
+    content = largeFileEditor.getValue();
+    tab.cursor = largeFileEditor.getCursor();
+    tab.scrollTop = largeFileEditor.getScrollTop();
+    tab.cm6State = largeFileEditor.getState();
+  } else if (editorInstance) {
+    content = editorInstance.getValue();
+    const scrollHost = document.querySelector('.vditor-content');
+    if (scrollHost) tab.scrollTop = scrollHost.scrollTop;
+  }
+  if (content == null) return;
+
+  tab.content = content;
+  tab.byteLen = new TextEncoder().encode(content).length;
+}
+
+function markActiveTabDirty() {
+  if (switchingTab) return;
+  const tab = getActiveTab();
+  if (!tab || tab.kind === 'viewer') return;
+  if (!tab.dirty) {
+    tab.dirty = true;
+    renderTabs();
+  }
+  scheduleAutosave();
+  scheduleSessionPersist();
+}
+
+function markTabSaved(tab, content) {
+  if (!tab) return;
+  tab.content = content;
+  tab.byteLen = new TextEncoder().encode(content).length;
+  tab.eol = detectEol(content);
+  tab.dirty = false;
+  renderTabs();
+  if (tab.id === activeTabId) updateDocumentStatus();
+  scheduleSessionPersist();
+}
+
+function markActiveTabSaved() {
+  const tab = getActiveTab();
+  if (!tab) return;
+  markTabSaved(tab, getEditorValue());
+}
+
+function isAutosaveEnabled() {
+  return appSettings.autosave !== false;
+}
+
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  if (!isAutosaveEnabled()) return;
+  autosaveTimer = setTimeout(() => {
+    void autosaveActiveTab();
+  }, 1800);
+}
+
+async function autosaveActiveTab() {
+  if (restoringSession || saveInFlight || logViewerActive) return;
+  const tab = getActiveTab();
+  if (!tab || !tab.dirty || tab.kind === 'viewer' || !tab.path) return;
+  if (tab.byteLen > AUTOSAVE_MAX_BYTES) return;
+
+  const content = getEditorValue();
+  if (content === tab.content) return;
+
+  saveInFlight = true;
+  try {
+    await writeTextFile(tab.path, content);
+    if (!documentTabs.includes(tab)) return;
+    markTabSaved(tab, content);
+    updateStatus('已自动保存');
+  } catch (error) {
+    console.warn('自动保存失败:', error);
+    updateStatus('自动保存失败，请手动保存');
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+function scheduleSessionPersist() {
+  if (restoringSession) return;
+  clearTimeout(sessionPersistTimer);
+  sessionPersistTimer = setTimeout(persistSessionNow, 500);
+}
+
+function collectSessionSnapshot() {
+  if (!switchingTab) snapshotActiveTab();
+  const active = getActiveTab();
+  let budget = SESSION_CONTENT_BUDGET;
+
+  const tabs = documentTabs.map((tab) => {
+    let content = null;
+    if (tab.kind !== 'viewer' && (tab.dirty || !tab.path)) {
+      const text = tab.content || '';
+      if (text.length <= budget) {
+        content = text;
+        budget -= text.length;
+      }
+    }
+    return {
+      path: tab.path || null,
+      name: tab.name,
+      kind: tab.kind,
+      isMarkdown: tab.isMarkdown,
+      byteLen: tab.byteLen,
+      eol: tab.eol,
+      dirty: Boolean(tab.dirty),
+      cursor: tab.cursor,
+      scrollTop: tab.scrollTop,
+      content
+    };
+  });
+
+  return {
+    version: 2,
+    savedAt: Date.now(),
+    activeIndex: active ? documentTabs.indexOf(active) : 0,
+    activePath: active?.path || null,
+    activeName: active?.name || null,
+    tabs
+  };
+}
+
+function persistSessionNow() {
+  if (restoringSession) return;
+  const snapshot = collectSessionSnapshot();
+  if (snapshot.tabs.length === 0) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+    // 超配额时优先保留未命名文档内容，文件类标签退化为只存路径。
+    try {
+      const compact = {
+        ...snapshot,
+        tabs: snapshot.tabs.map((tab) => (tab.path ? { ...tab, content: null } : tab))
+      };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(compact));
+    } catch (fallbackError) {
+      console.warn('保存会话失败:', fallbackError || error);
+    }
+  }
+}
+
+async function restoreSession() {
+  let data = null;
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch (error) {
+    console.warn('读取会话失败:', error);
+    return false;
+  }
+
+  if (!data || data.version !== 2 || !Array.isArray(data.tabs) || data.tabs.length === 0) {
+    return false;
+  }
+
+  restoringSession = true;
+  try {
+    documentTabs = [];
+    activeTabId = null;
+
+    for (const entry of data.tabs) {
+      if (!entry || (!entry.path && entry.content == null)) continue;
+
+      if (entry.content != null) {
+        const name = entry.name || (entry.path ? entry.path.split(/[\\/]/).pop() : '未命名');
+        const fileInfo = getFileType(name);
+        const kind = entry.kind === 'cm6' ? 'cm6' : 'vditor';
+        const tab = createTabRecord({
+          path: entry.path || null,
+          name,
+          fileInfo,
+          kind,
+          content: entry.content,
+          byteLen: entry.byteLen,
+          isMarkdown: entry.isMarkdown !== false
+        });
+        tab.dirty = Boolean(entry.dirty || !entry.path);
+        if (entry.eol) tab.eol = entry.eol;
+        if (entry.cursor) tab.cursor = entry.cursor;
+        if (Number.isFinite(entry.scrollTop)) tab.scrollTop = entry.scrollTop;
+        documentTabs.push(tab);
+      } else if (entry.path) {
+        try {
+          await loadFileIntoEditor(entry.path);
+        } catch (error) {
+          console.warn('恢复文件失败:', entry.path, error);
+        }
+      }
+    }
+
+    if (documentTabs.length === 0) return false;
+
+    const byPath = data.activePath
+      ? documentTabs.find((tab) => tab.path === data.activePath)
+      : null;
+    const byName = data.activeName
+      ? documentTabs.find((tab) => !tab.path && tab.name === data.activeName)
+      : null;
+    const index = Number.isInteger(data.activeIndex)
+      ? Math.min(Math.max(data.activeIndex, 0), documentTabs.length - 1)
+      : 0;
+    const target = byPath || byName || documentTabs[index] || documentTabs[0];
+    await activateTab(target.id);
+    updateStatus(`已恢复 ${documentTabs.length} 个标签页`);
+    return true;
+  } finally {
+    restoringSession = false;
+    scheduleSessionPersist();
+  }
+}
+
+async function applyTabToEditor(tab) {
+  switchingTab = true;
+  try {
+    syncTabGlobals(tab);
+    updateFileInfoDisplay(tab.name, tab.fileInfo);
+
+    if (tab.kind === 'viewer') {
+      await openLargeFileViewer(tab.path);
+    } else {
+      await closeLargeFileViewer();
+      if (tab.kind === 'cm6') {
+        await enterLargeFileMode(tab.content, tab.path || tab.name, tab.byteLen, {
+          large: tab.byteLen >= LARGE_FILE_MODE_THRESHOLD
+        });
+        if (largeFileEditor) {
+          if (tab.cm6State) {
+            largeFileEditor.setState(tab.cm6State);
+          } else {
+            if (tab.cursor) largeFileEditor.setCursor(tab.cursor.line, tab.cursor.col);
+            requestAnimationFrame(() => largeFileEditor?.setScrollTop(tab.scrollTop || 0));
+          }
+        }
+      } else {
+        await exitLargeFileModeIfActive();
+        if (editorInstance) {
+          if (editorInstance.getCurrentMode && editorInstance.getCurrentMode() !== 'ir') {
+            switchEditorMode('ir');
+          }
+          editorInstance.setValue(tab.content);
+          updateWordCount(tab.content);
+          adjustEditorForFileType(tab.name);
+          applyPreviewModeForCurrentFile();
+          requestAnimationFrame(() => {
+            const scrollHost = document.querySelector('.vditor-content');
+            if (scrollHost) scrollHost.scrollTop = tab.scrollTop || 0;
+          });
+        }
+      }
+    }
+
+    if (tab.path) {
+      const dir = await dirname(tab.path);
+      if (dir !== currentWatchedDir) {
+        await populateFileList(dir, tab.name);
+        startDirWatch(dir);
+      } else {
+        updateFileListActive(tab.path);
+      }
+    } else {
+      updateFileListActive(null);
+    }
+  } finally {
+    switchingTab = false;
+    updateDocumentStatus();
+  }
+}
+
+async function activateTab(id) {
+  if (id === activeTabId) return;
+  const current = getActiveTab();
+  if (current) snapshotActiveTab();
+
+  const tab = documentTabs.find((item) => item.id === id);
+  if (!tab) return;
+
+  activeTabId = tab.id;
+  renderTabs();
+  try {
+    await applyTabToEditor(tab);
+  } catch (error) {
+    console.error('❌ 切换标签失败:', error);
+    updateStatus(`切换标签失败: ${error}`);
+  }
+  scheduleSessionPersist();
+}
+
+async function createNewTab() {
+  const content = '# 新文档\n\n开始编辑...';
+  const tab = createTabRecord({
+    name: '未命名',
+    fileInfo: getFileType('未命名.md'),
+    kind: 'vditor',
+    content,
+    isMarkdown: true
+  });
+  documentTabs.push(tab);
+  await activateTab(tab.id);
+  scheduleSessionPersist();
+  updateStatus('已创建新文档 (未保存)');
+}
+
+async function closeTab(id, { force = false } = {}) {
+  const index = documentTabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  const tab = documentTabs[index];
+
+  if (tab.dirty && !force) {
+    const confirmed = confirm(`“${tab.name}”有未保存修改，关闭将丢失。是否继续？`);
+    if (!confirmed) return;
+  }
+
+  const wasActive = tab.id === activeTabId;
+  if (wasActive && tab.kind === 'viewer') {
+    await closeLargeFileViewer();
+  }
+
+  documentTabs.splice(index, 1);
+
+  if (!wasActive) {
+    renderTabs();
+    scheduleSessionPersist();
+    return;
+  }
+
+  const next = documentTabs[index] || documentTabs[index - 1] || null;
+  activeTabId = null;
+  if (next) {
+    await activateTab(next.id);
+  } else {
+    renderTabs();
+    await createNewTab();
+  }
+  scheduleSessionPersist();
+}
+
+// ── 快速打开（Ctrl/Cmd+P）──────────────────────────────
+
+const RECENT_FILES_KEY = 'markedit-recent-files';
+const QUICK_OPEN_MAX_ITEMS = 3000;
+
+function getRecentFiles() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((path) => typeof path === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentFile(path) {
+  if (!path) return;
+  const next = [path, ...getRecentFiles().filter((entry) => entry !== path)].slice(0, 30);
+  try {
+    localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(next));
+  } catch {
+    /* 忽略配额错误 */
+  }
+}
+
+async function scanQuickOpenFiles(dirPath, depth, output) {
+  if (!dirPath || depth > 4 || output.length >= QUICK_OPEN_MAX_ITEMS) return;
+  let entries = [];
+  try {
+    entries = await readDir(dirPath);
+  } catch {
+    return;
+  }
+  const directories = entries.filter((entry) => entry.isDirectory);
+  const files = entries.filter((entry) => !entry.isDirectory && isSupportedFileName(entry.name));
+  for (const file of files) {
+    if (output.length >= QUICK_OPEN_MAX_ITEMS) return;
+    try {
+      output.push({ kind: 'file', name: file.name, path: await join(dirPath, file.name) });
+    } catch {
+      /* 忽略无法拼接的路径 */
+    }
+  }
+  for (const directory of directories.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (output.length >= QUICK_OPEN_MAX_ITEMS) return;
+    try {
+      await scanQuickOpenFiles(await join(dirPath, directory.name), depth + 1, output);
+    } catch {
+      /* 忽略不可访问目录 */
+    }
+  }
+}
+
+function getQuickCommands() {
+  return [
+    { kind: 'command', command: 'new', name: '新建文档', path: 'Ctrl/Cmd+N' },
+    { kind: 'command', command: 'open-file', name: '打开文件', path: 'Ctrl/Cmd+O' },
+    { kind: 'command', command: 'open-folder', name: '打开文件夹', path: '工作区' },
+    { kind: 'command', command: 'toggle-theme', name: '切换主题', path: '亮色 / 暗色' },
+    { kind: 'command', command: 'settings', name: '打开设置', path: '偏好设置' }
+  ];
+}
+
+function fuzzyScore(text, query) {
+  if (!query) return 0;
+  const source = String(text).toLowerCase();
+  const needle = String(query).toLowerCase();
+  let start = 0;
+  let score = 0;
+  let streak = 0;
+  for (const char of needle) {
+    const index = source.indexOf(char, start);
+    if (index < 0) return -1;
+    score += 20 - Math.min(15, index - start);
+    streak = index === start ? streak + 1 : 0;
+    score += streak * 3;
+    start = index + 1;
+  }
+  return score - source.length * 0.01;
+}
+
+async function openQuickOpen() {
+  const overlay = document.getElementById('quickOpen');
+  const input = document.getElementById('quickOpenInput');
+  if (!overlay || !input) return;
+
+  const items = [];
+  for (const tab of documentTabs) {
+    items.push({ kind: 'tab', name: tab.name, path: tab.path || '', tabId: tab.id });
+  }
+
+  for (const path of getRecentFiles()) {
+    const name = path.split(/[\\/]/).pop() || path;
+    items.push({ kind: 'file', name, path, recent: true });
+  }
+
+  if (currentWatchedDir) {
+    await scanQuickOpenFiles(currentWatchedDir, 0, items);
+  }
+  items.push(...getQuickCommands());
+
+  const seen = new Set();
+  quickOpenItems = items.filter((item) => {
+    const key = item.kind === 'command'
+      ? `command:${item.command}`
+      : item.kind === 'tab'
+        ? `tab:${item.tabId}`
+        : `file:${item.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  quickOpenFiltered = quickOpenItems.slice(0, 500);
+  quickOpenIndex = 0;
+
+  overlay.hidden = false;
+  input.value = '';
+  renderQuickOpen();
+  input.focus();
+}
+
+function closeQuickOpen() {
+  const overlay = document.getElementById('quickOpen');
+  if (overlay) overlay.hidden = true;
+}
+
+function renderQuickOpen() {
+  const list = document.getElementById('quickOpenList');
+  if (!list) return;
+  list.replaceChildren();
+
+  if (quickOpenFiltered.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'quick-open__empty';
+    empty.textContent = '没有匹配的文件或标签页';
+    list.appendChild(empty);
+    return;
+  }
+
+  quickOpenIndex = Math.max(0, Math.min(quickOpenIndex, quickOpenFiltered.length - 1));
+  quickOpenFiltered.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = `quick-open__item${index === quickOpenIndex ? ' active' : ''}`;
+
+    const kind = document.createElement('span');
+    kind.className = 'quick-open__kind';
+    kind.textContent = item.kind === 'tab' ? 'TAB' : item.kind === 'command' ? 'CMD' : item.recent ? 'RECENT' : 'FILE';
+
+    const name = document.createElement('span');
+    name.className = 'quick-open__name';
+    name.textContent = item.name;
+
+    const path = document.createElement('span');
+    path.className = 'quick-open__path';
+    path.textContent = item.path || '未保存';
+
+    row.append(kind, name, path);
+    row.addEventListener('mouseenter', () => {
+      quickOpenIndex = index;
+      list.querySelectorAll('.quick-open__item').forEach((el, i) => {
+        el.classList.toggle('active', i === index);
+      });
+    });
+    row.addEventListener('click', () => void openQuickItem(item));
+    list.appendChild(row);
+  });
+}
+
+function updateQuickOpenFilter() {
+  const input = document.getElementById('quickOpenInput');
+  if (!input) return;
+  const raw = input.value.trim();
+  const commandMode = raw.startsWith('>');
+  const query = (commandMode ? raw.slice(1) : raw).trim().toLowerCase();
+
+  let candidates = quickOpenItems;
+  if (commandMode) candidates = candidates.filter((item) => item.kind === 'command');
+
+  quickOpenFiltered = candidates
+    .map((item) => ({
+      item,
+      score: query ? fuzzyScore(`${item.name} ${item.path}`, query) : 0
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 500)
+    .map((entry) => entry.item);
+  quickOpenIndex = 0;
+  renderQuickOpen();
+}
+
+async function executeQuickCommand(command) {
+  if (command === 'new') await createNewTab();
+  else if (command === 'open-file') document.getElementById('btnOpen')?.click();
+  else if (command === 'open-folder') document.getElementById('btnOpenFolder')?.click();
+  else if (command === 'toggle-theme') document.getElementById('btnTheme')?.click();
+  else if (command === 'settings') document.getElementById('btnSettings')?.click();
+}
+
+async function openQuickItem(item) {
+  closeQuickOpen();
+  try {
+    if (item.kind === 'command') {
+      await executeQuickCommand(item.command);
+    } else if (item.kind === 'tab') {
+      await activateTab(item.tabId);
+    } else {
+      await loadFileIntoEditor(item.path);
+    }
+  } catch (error) {
+    console.error('快速打开失败:', error);
+    updateStatus(`打开失败: ${error}`);
+  }
+}
+
 /**
  * 统一的文件加载入口（方案 v2 §4.1，所有打开路径收敛于此）。
  * 流程：size() 守卫（读取前）→ 按阈值选择引擎：
@@ -295,6 +1233,15 @@ async function openFileFromPath(filePath) {
  */
 async function loadFileIntoEditor(filePath) {
   try {
+    const existingTab = findTabByPath(filePath);
+    if (existingTab) {
+      await activateTab(existingTab.id);
+      return { text: existingTab.content, bytes: existingTab.byteLen };
+    }
+
+    snapshotActiveTab();
+    switchingTab = true;
+
     // 1. 大小守卫（必须在读取前判定，否则守卫无意义）
     let bytes = null;
     try {
@@ -354,6 +1301,23 @@ async function loadFileIntoEditor(filePath) {
     // 3. 引擎选择：非 Markdown 文本统一走 CodeMirror（纯文本 + 语法高亮），
     //    避免 Vditor 把代码按 Markdown 解析（缩进会被吃掉）；Markdown 仅在超大时才降级为纯文本
     const isLarge = useLargeMode || byteLen >= LARGE_FILE_MODE_THRESHOLD;
+
+    dropPristineUntitledTab();
+    const tabKind = (isLarge || !currentFileIsMarkdown) ? 'cm6' : 'vditor';
+    const tab = createTabRecord({
+      path: filePath,
+      name: fileName,
+      fileInfo,
+      kind: tabKind,
+      content: text,
+      byteLen,
+      isMarkdown: currentFileIsMarkdown
+    });
+    documentTabs.push(tab);
+    activeTabId = tab.id;
+    syncTabGlobals(tab);
+    renderTabs();
+
     if (isLarge || !currentFileIsMarkdown) {
       await enterLargeFileMode(text, filePath, byteLen, { large: isLarge });
     } else {
@@ -387,13 +1351,18 @@ async function loadFileIntoEditor(filePath) {
 
     updateStatus(isLarge
       ? `大文件模式：${fileName}（${(byteLen / 1024).toFixed(0)} KB）`
-      : `已打开: ${fileName} (${fileInfo.name})`);
+      : '就绪');
+    updateDocumentStatus();
+    rememberRecentFile(filePath);
+    scheduleSessionPersist();
     return { text, bytes: byteLen };
   } catch (error) {
     console.error('❌ 打开文件失败:', error);
     updateStatus(`打开文件失败: ${error}`);
     alert(`无法打开文件: ${error}\n路径: ${normalizeIncomingFilePath(filePath) || filePath}`);
     return null;
+  } finally {
+    switchingTab = false;
   }
 }
 
@@ -409,7 +1378,9 @@ async function ensureLargeFileEditor() {
     // 动态 import：CM6 不进首屏 bundle（评审 P3，实测主 chunk 879KB→328KB）
     const { LargeFileEditor } = await import('./large-file-editor.js');
     largeFileEditor = new LargeFileEditor(document.getElementById('largeFileEditor'));
+    largeFileEditor.setOnCursorChange(() => updateDocumentStatus());
     largeFileEditor.setOnChange(() => {
+      markActiveTabDirty();
       // 大文档打开时已做一次性统计，输入期间不再 O(n) 扫描
       if (!largeFileMode || largeFileIsLarge) return;
       clearTimeout(textWordCountTimer);
@@ -427,7 +1398,29 @@ async function loadReadOnlyViewerFile(filePath, size) {
   const fileInfo = getFileType(fileName);
   currentFileIsMarkdown = isMarkdownFile(fileName);
 
-  await openLargeFileViewer(filePath);
+  dropPristineUntitledTab();
+  const tab = createTabRecord({
+    path: filePath,
+    name: fileName,
+    fileInfo,
+    kind: 'viewer',
+    content: '',
+    byteLen: size,
+    isMarkdown: currentFileIsMarkdown
+  });
+  documentTabs.push(tab);
+  activeTabId = tab.id;
+  syncTabGlobals(tab);
+  renderTabs();
+
+  try {
+    await openLargeFileViewer(filePath);
+  } catch (error) {
+    documentTabs = documentTabs.filter((item) => item.id !== tab.id);
+    activeTabId = null;
+    renderTabs();
+    throw error;
+  }
 
   currentFilePath = filePath;
   lastLoadedByteLen = size;
@@ -435,7 +1428,9 @@ async function loadReadOnlyViewerFile(filePath, size) {
   const dirPath = await dirname(filePath);
   await populateFileList(dirPath, fileName);
   startDirWatch(dirPath);
-  updateStatus(`只读日志模式: ${fileName} (${fileInfo.name})`);
+  updateDocumentStatus();
+  rememberRecentFile(filePath);
+  scheduleSessionPersist();
   return { text: '', bytes: size };
 }
 
@@ -820,16 +1815,34 @@ function hideSplash() {
 function initializeApp() {
   console.log('✅ 初始化应用');
 
+  loadAppSettings();
+  applyThemePreference(appSettings.theme);
+  applyEditorFontSize();
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (appSettings.theme === 'system') applyThemePreference('system');
+  });
+
   setupMacOSFileOpenSupport();
 
   // 先绑定事件监听器（UI 骨架已经可交互）
   setupEventListeners();
+  void setupWindowControls();
+  void setupWindowState();
+  void setupFileDrop();
+  void setupCloseGuard();
+  setupGlobalShortcuts();
   populateFileList();
 
   // 异步初始化 Vditor 编辑器
-  initVditor().then(() => {
+  initVditor().then(async () => {
     console.log('🎉 编辑器初始化完成');
+    applyThemePreference(appSettings.theme);
+    applyEditorFontSize();
     updateStatus('应用已就绪');
+
+    // 恢复上次会话；没有会话时创建默认未命名标签
+    const restored = await restoreSession();
+    if (!restored) ensureInitialTab();
     hideSplash();
 
     // 处理通过命令行打开的文件
@@ -845,6 +1858,96 @@ function initializeApp() {
 }
 
 // 填充并刷新文件列表
+function isSupportedFileName(name) {
+  const parts = name.split('.');
+  if (parts.length < 2) {
+    return ['Dockerfile', 'Makefile', 'dockerfile', 'makefile'].includes(name);
+  }
+  const extension = parts[parts.length - 1].toLowerCase();
+  return getSupportedExtensions().includes(extension);
+}
+
+async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
+  const entries = await readDir(dirPath);
+  const directories = entries
+    .filter((entry) => entry.isDirectory)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const files = entries
+    .filter((entry) => !entry.isDirectory && isSupportedFileName(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const directory of directories) {
+    const folder = document.createElement('div');
+    folder.className = 'file-tree-folder';
+    folder.style.paddingLeft = `${8 + depth * 14}px`;
+
+    const chevron = document.createElement('span');
+    chevron.className = 'file-tree-chevron';
+    chevron.textContent = '▸';
+    const icon = document.createElement('span');
+    icon.className = 'file-icon';
+    icon.textContent = '📁';
+    const label = document.createElement('span');
+    label.className = 'file-name';
+    label.textContent = directory.name;
+    folder.append(chevron, icon, label);
+
+    const children = document.createElement('div');
+    children.className = 'file-tree-children';
+    folder.addEventListener('click', async () => {
+      const expanded = children.classList.toggle('expanded');
+      chevron.textContent = expanded ? '▾' : '▸';
+      if (expanded && !children.dataset.loaded) {
+        children.dataset.loaded = '1';
+        const childPath = await join(dirPath, directory.name);
+        await renderFileTree(childPath, children, activeFileName, depth + 1);
+      }
+    });
+    container.append(folder, children);
+  }
+
+  for (const file of files) {
+    const el = document.createElement('div');
+    const isActive = file.name === activeFileName;
+    el.className = `file-item ${isActive ? 'active' : ''}`;
+    el.style.paddingLeft = `${8 + depth * 14}px`;
+
+    const icon = document.createElement('span');
+    icon.className = 'file-icon';
+    icon.textContent = getFileIcon(file.name);
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.title = file.name;
+    name.textContent = file.name;
+    el.dataset.path = await join(dirPath, file.name);
+    const badge = document.createElement('span');
+    badge.className = 'file-type-badge';
+    badge.textContent = getFileType(file.name).name;
+    el.append(icon, name, badge);
+
+    el.addEventListener('contextmenu', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const filePath = await join(dirPath, file.name);
+      showContextMenu(e.clientX, e.clientY, filePath, file.name);
+    });
+    el.addEventListener('click', async () => {
+      try {
+        const filePath = await join(dirPath, file.name);
+        const result = await loadFileIntoEditor(filePath);
+        if (result) {
+          updateFileListActive(filePath);
+          currentWatchedDir = dirPath;
+        }
+      } catch (error) {
+        console.error('❌ 读取文件失败:', error);
+        updateStatus(`读取文件失败: ${error}`);
+      }
+    });
+    container.appendChild(el);
+  }
+}
+
 async function populateFileList(dirPath, activeFileName) {
   const fileList = document.getElementById('fileList');
   const sidebarFolder = document.getElementById('sidebarFolder');
@@ -852,7 +1955,7 @@ async function populateFileList(dirPath, activeFileName) {
   if (!fileList) return;
 
   if (!dirPath) {
-    fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件以显示列表</div>';
+    fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件或文件夹以显示列表</div>';
     if (sidebarFolder) sidebarFolder.style.display = 'none';
     return;
   }
@@ -860,69 +1963,15 @@ async function populateFileList(dirPath, activeFileName) {
   try {
     const folderName = await basename(dirPath);
     if (sidebarFolder && folderNameSpan) {
-      sidebarFolder.style.display = 'block';
+      sidebarFolder.style.display = 'flex';
       folderNameSpan.textContent = folderName;
     }
 
-    const entries = await readDir(dirPath);
-    const files = entries.filter(entry => {
-      if (entry.isDirectory) return false;
-
-      // 获取文件扩展名
-      const parts = entry.name.split('.');
-      if (parts.length < 2) {
-        // 无扩展名的文件，检查是否是特殊文件
-        const specialFiles = ['Dockerfile', 'Makefile', 'dockerfile', 'makefile'];
-        return specialFiles.includes(entry.name);
-      }
-
-      const extension = parts[parts.length - 1].toLowerCase();
-      const supportedExtensions = getSupportedExtensions();
-      return supportedExtensions.includes(extension);
-    });
-
     fileList.innerHTML = '';
-
-    if (files.length === 0) {
+    await renderFileTree(dirPath, fileList, activeFileName, 0);
+    if (fileList.childElementCount === 0) {
       fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">此文件夹没有对应的文本文件</div>';
-      return;
     }
-
-    files.forEach(file => {
-      const el = document.createElement('div');
-      const isActive = file.name === activeFileName;
-      const fileIcon = getFileIcon(file.name);
-      const fileType = getFileType(file.name);
-      
-      el.className = `file-item ${isActive ? 'active' : ''}`;
-      el.innerHTML = `
-        <span class="file-icon">${fileIcon}</span>
-        <span class="file-name" title="${file.name}">${file.name}</span>
-        <span class="file-type-badge">${fileType.name}</span>
-      `;
-
-      // 添加右键菜单拦截
-      el.addEventListener('contextmenu', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const filePath = await join(dirPath, file.name);
-        showContextMenu(e.clientX, e.clientY, filePath, file.name);
-      });
-      el.addEventListener('click', async () => {
-        try {
-          const filePath = await join(dirPath, file.name);
-          const result = await loadFileIntoEditor(filePath);
-          if (result) {
-            document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
-            el.classList.add('active');
-          }
-        } catch (error) {
-          console.error('❌ 读取文件失败:', error);
-          updateStatus(`读取文件失败: ${error}`);
-        }
-      });
-      fileList.appendChild(el);
-    });
   } catch (error) {
     console.error('❌ 读取目录失败:', error);
   }
@@ -1048,6 +2097,7 @@ function initVditor() {
       input: (() => {
         let _timer = null;
         return () => {
+          markActiveTabDirty();
           clearTimeout(_timer);
           _timer = setTimeout(() => {
             // 大文档门阔：跳过实时统计（O(全文) 的 getValue + 正则流水线）
@@ -1061,6 +2111,7 @@ function initVditor() {
         disableWysiwygMode();
         bindPreviewModeToModeSwitch();
         updateWordCount();
+        // 初始标签在会话恢复后再创建；此处编辑器已带默认内容。
         // Vditor 渲染完成后才能找到 .vditor-outline，在此时初始化拖动条
         initOutlineResizer();
         resolve();
@@ -1076,8 +2127,559 @@ function syncOutlineResizerVisibility(outlineEl, resizerEl) {
 }
 
 // 设置事件监听器
+let appWindow = null;
+
+/** Windows 无边框窗口控制；macOS 保留原生标题栏与交通灯。 */
+async function snapWindow(mode) {
+  if (!appWindow) return;
+  try {
+    if (mode === 'maximize') {
+      await appWindow.maximize();
+      return;
+    }
+    if (mode === 'restore') {
+      await appWindow.unmaximize();
+      return;
+    }
+    const monitor = await currentMonitor();
+    const scale = await appWindow.scaleFactor();
+    if (!monitor) return;
+    const work = monitor.workArea;
+    const width = work.size.width / scale;
+    const height = work.size.height / scale;
+    await appWindow.unmaximize();
+    await appWindow.setSize(new LogicalSize(width / 2, height));
+    await appWindow.setPosition(
+      new LogicalPosition(
+        work.position.x / scale + (mode === 'right' ? width / 2 : 0),
+        work.position.y / scale
+      )
+    );
+  } catch (error) {
+    console.warn('分屏失败:', error);
+  }
+}
+
+async function setupWindowControls() {
+  const titlebar = document.getElementById('windowTitlebar');
+  if (!titlebar) return;
+
+  const isWindows = navigator.platform.toLowerCase().includes('win');
+  if (!isWindows || !('__TAURI_INTERNALS__' in window)) return;
+
+  try {
+    appWindow = getCurrentWindow();
+    titlebar.hidden = false;
+    document.documentElement.classList.add('has-custom-titlebar');
+    updateWindowTitle();
+
+    const dragRegion = document.getElementById('windowTitleDrag');
+    dragRegion?.addEventListener('mousedown', (event) => {
+      if (event.button !== 0 || event.target.closest('button')) return;
+      event.preventDefault();
+      if (event.detail === 2) {
+        void appWindow.toggleMaximize();
+      } else {
+        void appWindow.startDragging();
+      }
+    });
+
+    const resizeHandles = document.getElementById('windowResizeHandles');
+    if (resizeHandles) {
+      resizeHandles.hidden = false;
+      resizeHandles.querySelectorAll('[data-resize]').forEach((handle) => {
+        handle.addEventListener('mousedown', (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          void appWindow.startResizeDragging(handle.dataset.resize);
+        });
+      });
+    }
+
+    const minimize = document.getElementById('btnWindowMinimize');
+    const maximize = document.getElementById('btnWindowMaximize');
+    const close = document.getElementById('btnWindowClose');
+
+    minimize?.addEventListener('click', () => {
+      void appWindow.minimize();
+    });
+    maximize?.addEventListener('click', () => {
+      void appWindow.toggleMaximize();
+    });
+    close?.addEventListener('click', () => {
+      void appWindow.close();
+    });
+
+    const snapMenu = document.getElementById('snapMenu');
+    let snapTimer = null;
+    const hideSnapMenu = () => {
+      clearTimeout(snapTimer);
+      if (snapMenu) snapMenu.hidden = true;
+    };
+    const showSnapMenu = () => {
+      if (!snapMenu || !maximize) return;
+      const rect = maximize.getBoundingClientRect();
+      snapMenu.hidden = false;
+      snapMenu.style.top = `${Math.round(rect.bottom + 4)}px`;
+      snapMenu.style.left = `${Math.round(Math.max(4, rect.right - 220))}px`;
+    };
+    maximize?.addEventListener('mouseenter', () => {
+      clearTimeout(snapTimer);
+      snapTimer = setTimeout(showSnapMenu, 320);
+    });
+    maximize?.addEventListener('mouseleave', () => {
+      clearTimeout(snapTimer);
+      snapTimer = setTimeout(hideSnapMenu, 260);
+    });
+    snapMenu?.addEventListener('mouseenter', () => clearTimeout(snapTimer));
+    snapMenu?.addEventListener('mouseleave', hideSnapMenu);
+    snapMenu?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-snap]');
+      if (!button) return;
+      hideSnapMenu();
+      void snapWindow(button.dataset.snap);
+    });
+
+    const syncMaximized = async () => {
+      if (!appWindow) return;
+      try {
+        const maximized = await appWindow.isMaximized();
+        titlebar.classList.toggle('is-maximized', maximized);
+        if (resizeHandles) resizeHandles.hidden = maximized;
+        if (maximize) {
+          const label = maximized ? '还原' : '最大化';
+          maximize.title = label;
+          maximize.setAttribute('aria-label', label);
+        }
+      } catch {
+        /* 窗口状态查询失败不影响使用 */
+      }
+    };
+
+    await syncMaximized();
+    await appWindow.onResized(() => {
+      void syncMaximized();
+    });
+  } catch (error) {
+    console.warn('窗口控制初始化失败:', error);
+    titlebar.hidden = true;
+  }
+}
+
+let saveInFlight = false;
+
+async function setupFileDrop() {
+  if (!('__TAURI_INTERNALS__' in window)) return;
+  try {
+    const webview = getCurrentWebview();
+    await webview.onDragDropEvent(async (event) => {
+      if (event.payload.type !== 'drop') return;
+      const paths = Array.isArray(event.payload.paths) ? event.payload.paths : [];
+      if (paths.length === 0) return;
+      updateStatus(`正在打开拖入的 ${paths.length} 个文件…`);
+      for (const filePath of paths) {
+        try {
+          await loadFileIntoEditor(filePath);
+        } catch (error) {
+          console.warn('拖放打开失败:', filePath, error);
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('拖放文件初始化失败:', error);
+  }
+}
+
+const WINDOW_STATE_KEY = 'markedit-window-v1';
+const SETTINGS_KEY = 'markedit-settings-v1';
+let appSettings = { autosave: true, theme: 'system', fontSize: 15 };
+let windowStateTimer = null;
+
+/** 记住并恢复窗口位置、大小与最大化状态。 */
+async function setupWindowState() {
+  if (!('__TAURI_INTERNALS__' in window)) return;
+
+  try {
+    const win = appWindow || getCurrentWindow();
+    appWindow = win;
+    const scale = await win.scaleFactor();
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(WINDOW_STATE_KEY) || 'null');
+    } catch {
+      saved = null;
+    }
+
+    const monitor = await currentMonitor();
+    const work = monitor?.workArea;
+    const maxWidth = work ? work.size.width / scale - 40 : Infinity;
+    const maxHeight = work ? work.size.height / scale - 40 : Infinity;
+
+    if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) {
+      const width = Math.max(800, Math.min(saved.width, maxWidth));
+      const height = Math.max(560, Math.min(saved.height, maxHeight));
+      await win.setSize(new LogicalSize(width, height));
+
+      if (Number.isFinite(saved.x) && Number.isFinite(saved.y) && work) {
+        const minX = work.position.x / scale;
+        const minY = work.position.y / scale;
+        const x = Math.max(minX, Math.min(saved.x, minX + maxWidth - width));
+        const y = Math.max(minY, Math.min(saved.y, minY + maxHeight - height));
+        await win.setPosition(new LogicalPosition(x, y));
+      }
+      if (saved.maximized) await win.maximize();
+    }
+
+    const saveState = async () => {
+      try {
+        const [size, position, factor, maximized] = await Promise.all([
+          win.innerSize(),
+          win.outerPosition(),
+          win.scaleFactor(),
+          win.isMaximized()
+        ]);
+        localStorage.setItem(
+          WINDOW_STATE_KEY,
+          JSON.stringify({
+            width: size.width / factor,
+            height: size.height / factor,
+            x: position.x / factor,
+            y: position.y / factor,
+            maximized
+          })
+        );
+      } catch {
+        /* 窗口状态保存失败不影响使用 */
+      }
+    };
+
+    const scheduleSave = () => {
+      clearTimeout(windowStateTimer);
+      windowStateTimer = setTimeout(() => void saveState(), 500);
+    };
+    await win.onResized(scheduleSave);
+    await win.onMoved(scheduleSave);
+    window.addEventListener('beforeunload', () => void saveState());
+  } catch (error) {
+    console.warn('窗口状态恢复失败:', error);
+  }
+}
+
+/** 保存当前文档；forceDialog 用于另存为。 */
+async function saveActiveDocument({ forceDialog = false, silent = false } = {}) {
+  if (saveInFlight) return false;
+  if (logViewerActive) {
+    if (!silent) updateStatus('只读日志模式不支持保存');
+    return false;
+  }
+  if (largeFileMode && !largeFileEditor) return false;
+  if (!largeFileMode && !editorInstance) return false;
+
+  const tab = getActiveTab();
+  const content = getEditorValue();
+  const targetPath = forceDialog ? null : tab?.path || currentFilePath;
+
+  saveInFlight = true;
+  try {
+    if (targetPath) {
+      await writeTextFile(targetPath, content);
+      markTabSaved(tab, content);
+      if (tab && tab.id === activeTabId) currentFilePath = targetPath;
+      if (!silent) updateStatus('已保存');
+      return true;
+    }
+
+    const defaultFilename = await getDefaultSaveFilename(tab?.path || null, content);
+    const selectedPath = await save({
+      title: '保存新文档',
+      defaultPath: defaultFilename,
+      filters: getSupportedFileFilters()
+    });
+    if (!selectedPath) return false;
+
+    await writeTextFile(selectedPath, content);
+    const fileName = await basename(selectedPath);
+    const dirPath = await dirname(selectedPath);
+    const fileInfo = getFileType(fileName);
+    if (tab) {
+      tab.path = selectedPath;
+      tab.name = fileName;
+      tab.fileInfo = fileInfo;
+      tab.isMarkdown = isMarkdownFile(fileName);
+      tab.content = content;
+      tab.byteLen = new TextEncoder().encode(content).length;
+      tab.eol = detectEol(content);
+      tab.dirty = false;
+    }
+    if (tab && tab.id === activeTabId) {
+      currentFilePath = selectedPath;
+      syncTabGlobals(tab);
+      document.getElementById('filePath').textContent = currentFilePath;
+      updateFileInfoDisplay(fileName, fileInfo);
+    }
+    renderTabs();
+    updateDocumentStatus();
+    if (!silent) updateStatus(`已保存至: ${fileName}`);
+    await populateFileList(dirPath, fileName);
+    startDirWatch(dirPath);
+    return true;
+  } catch (error) {
+    console.error('❌ 保存文件失败:', error);
+    if (String(error).includes('__TAURI_IPC__') || String(error).includes('Tauri')) {
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = tab?.name || '未命名文档.md';
+      a.click();
+      URL.revokeObjectURL(url);
+      updateStatus('已通过浏览器下载保存');
+    } else {
+      updateStatus('保存出错');
+      if (!silent) alert(`保存文件失败: ${error}`);
+    }
+    return false;
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+function hasDirtyTabs() {
+  return documentTabs.some((tab) => tab.dirty);
+}
+
+function confirmCloseAll() {
+  const dirty = documentTabs.filter((tab) => tab.dirty);
+  if (dirty.length === 0) return true;
+  const names = dirty.slice(0, 5).map((tab) => tab.name).join('、');
+  const suffix = dirty.length > 5 ? ` 等 ${dirty.length} 个` : '';
+  return confirm(`有未保存的文档：${names}${suffix}。\n关闭应用将丢失这些修改，是否继续？`);
+}
+
+async function setupCloseGuard() {
+  if ('__TAURI_INTERNALS__' in window) {
+    try {
+      const win = appWindow || getCurrentWindow();
+      appWindow = win;
+      await win.onCloseRequested((event) => {
+        persistSessionNow();
+        if (!confirmCloseAll()) event.preventDefault();
+      });
+      return;
+    } catch (error) {
+      console.warn('关闭保护初始化失败:', error);
+    }
+  }
+
+  // 浏览器开发模式不注册 beforeunload，避免 HMR/刷新被未保存提示阻断；
+  // 真实桌面应用由 Tauri 的 onCloseRequested 负责。
+  if (import.meta.env.DEV) return;
+
+  window.addEventListener('beforeunload', (event) => {
+    persistSessionNow();
+    if (!hasDirtyTabs()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
+function countOccurrences(text, query, caseSensitive = false) {
+  if (!query) return 0;
+  const source = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  if (!needle) return 0;
+  let count = 0;
+  let index = 0;
+  while ((index = source.indexOf(needle, index)) >= 0) {
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
+function currentSearchText() {
+  if (logViewerActive) return '';
+  if (largeFileMode && largeFileEditor) return largeFileEditor.getValue();
+  if (editorInstance) return editorInstance.getValue();
+  return '';
+}
+
+function updateFindStatus() {
+  const input = document.getElementById('findInput');
+  const status = document.getElementById('findStatus');
+  if (!input || !status) return;
+  const query = input.value;
+  if (!query) {
+    status.textContent = '0 处';
+    return;
+  }
+  status.textContent = `${countOccurrences(currentSearchText(), query)} 处`;
+}
+
+function openFindBar(replaceMode = false) {
+  if (logViewerActive) {
+    document.getElementById('logSearchToggle')?.click();
+    setTimeout(() => document.getElementById('logSearchInput')?.focus(), 0);
+    return;
+  }
+  const bar = document.getElementById('findBar');
+  const input = document.getElementById('findInput');
+  const replaceInput = document.getElementById('replaceInput');
+  if (!bar || !input) return;
+  bar.hidden = false;
+  updateFindStatus();
+  (replaceMode ? replaceInput : input)?.focus();
+  input.select();
+}
+
+function closeFindBar() {
+  const bar = document.getElementById('findBar');
+  if (bar) bar.hidden = true;
+}
+
+function findInVditor(query, backward) {
+  if (!editorInstance || !query) return false;
+  editorInstance.focus();
+  return window.find(query, false, backward, true, false, false, false);
+}
+
+function findNextMatch(backward = false) {
+  const input = document.getElementById('findInput');
+  const query = input?.value.trim();
+  if (!query) return;
+  if (largeFileMode && largeFileEditor) {
+    largeFileEditor.find(query, { backward });
+  } else if (editorInstance) {
+    findInVditor(query, backward);
+  }
+  updateFindStatus();
+}
+
+function replaceCurrentMatch() {
+  const input = document.getElementById('findInput');
+  const replacement = document.getElementById('replaceInput')?.value ?? '';
+  const query = input?.value;
+  if (!query) return;
+  if (largeFileMode && largeFileEditor) {
+    largeFileEditor.replace(query, replacement, { all: false });
+  } else if (editorInstance) {
+    if (findInVditor(query, false)) {
+      document.execCommand('insertText', false, replacement);
+    }
+  }
+  updateFindStatus();
+}
+
+function replaceAllMatches() {
+  const input = document.getElementById('findInput');
+  const replacement = document.getElementById('replaceInput')?.value ?? '';
+  const query = input?.value;
+  if (!query) return;
+  if (largeFileMode && largeFileEditor) {
+    largeFileEditor.replace(query, replacement, { all: true });
+  } else if (editorInstance) {
+    const current = editorInstance.getValue();
+    const next = current.split(query).join(replacement);
+    editorInstance.setValue(next);
+    markActiveTabDirty();
+  }
+  updateFindStatus();
+  updateStatus('已全部替换');
+}
+
+function cycleTab(step) {
+  if (documentTabs.length < 2) return;
+  const current = documentTabs.findIndex((tab) => tab.id === activeTabId);
+  const start = current < 0 ? 0 : current;
+  const next = (start + step + documentTabs.length) % documentTabs.length;
+  void activateTab(documentTabs[next].id);
+}
+
+function setupGlobalShortcuts() {
+  document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.isComposing) return;
+    const mod = event.ctrlKey || event.metaKey;
+    if (!mod || event.altKey) return;
+
+    const key = event.key.toLowerCase();
+    if (key === 'f') {
+      event.preventDefault();
+      event.stopPropagation();
+      openFindBar(false);
+      return;
+    }
+    if (key === 'h') {
+      event.preventDefault();
+      event.stopPropagation();
+      openFindBar(true);
+      return;
+    }
+    if (event.key === ',') {
+      event.preventDefault();
+      event.stopPropagation();
+      openSettingsDialog();
+      return;
+    }
+    if (key === 's') {
+      event.preventDefault();
+      event.stopPropagation();
+      void saveActiveDocument({ forceDialog: event.shiftKey });
+      return;
+    }
+    if (key === 'w') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!document.getElementById('quickOpen')?.hidden) {
+        closeQuickOpen();
+      } else if (activeTabId) {
+        void closeTab(activeTabId);
+      }
+      return;
+    }
+    if (key === 'n') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeQuickOpen();
+      void createNewTab();
+      return;
+    }
+    if (key === 'o') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeQuickOpen();
+      document.getElementById('btnOpen')?.click();
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleTab(event.shiftKey ? -1 : 1);
+    }
+  }, true);
+}
+
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
+
+  // 打开文件夹
+  const btnOpenFolder = document.getElementById('btnOpenFolder');
+  if (btnOpenFolder) {
+    btnOpenFolder.addEventListener('click', async () => {
+      try {
+        const selected = await open({ directory: true, multiple: false });
+        const dirPath = selected?.path || selected;
+        if (!dirPath) return;
+        currentWatchedDir = dirPath;
+        document.getElementById('sidebar')?.classList.remove('collapsed');
+        await populateFileList(dirPath, null);
+        startDirWatch(dirPath);
+        updateStatus(`已打开文件夹: ${await basename(dirPath)}`);
+      } catch (error) {
+        console.error('打开文件夹失败:', error);
+        updateStatus(`打开文件夹失败: ${error}`);
+      }
+    });
+  }
 
   // 手动刷新文件夹按钮
   const btnRefreshFolder = document.getElementById('btnRefreshFolder');
@@ -1116,6 +2718,15 @@ function setupEventListeners() {
           const newPath = await join(dir, newName);
           await rename(contextTargetFile.path, newPath);
           updateStatus(`已重命名: ${newName}`);
+          const renamedTab = findTabByPath(contextTargetFile.path);
+          if (renamedTab) {
+            renamedTab.path = newPath;
+            renamedTab.name = newName;
+            renamedTab.fileInfo = getFileType(newName);
+            renamedTab.isMarkdown = isMarkdownFile(newName);
+            if (renamedTab.id === activeTabId) syncTabGlobals(renamedTab);
+            renderTabs();
+          }
           if (currentFilePath === contextTargetFile.path) {
             currentFilePath = newPath;
             document.getElementById('filePath').textContent = newPath;
@@ -1210,7 +2821,11 @@ function setupEventListeners() {
         try {
           await remove(contextTargetFile.path);
           updateStatus('已被删除: ' + contextTargetFile.name);
-          if (currentFilePath === contextTargetFile.path) {
+          const deletedTab = findTabByPath(contextTargetFile.path);
+          if (deletedTab) {
+            deletedTab.dirty = false;
+            await closeTab(deletedTab.id);
+          } else if (currentFilePath === contextTargetFile.path) {
             currentFilePath = null;
             document.getElementById('filePath').textContent = '未保存';
             await closeLargeFileViewer();
@@ -1227,24 +2842,160 @@ function setupEventListeners() {
     });
   }
 
+  // 快速打开
+  const btnQuickOpen = document.getElementById('btnQuickOpen');
+  if (btnQuickOpen) {
+    btnQuickOpen.addEventListener('click', () => void openQuickOpen());
+  }
+
+  const quickOpenInput = document.getElementById('quickOpenInput');
+  if (quickOpenInput) {
+    quickOpenInput.addEventListener('input', updateQuickOpenFilter);
+    quickOpenInput.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        quickOpenIndex = Math.min(quickOpenIndex + 1, quickOpenFiltered.length - 1);
+        renderQuickOpen();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        quickOpenIndex = Math.max(quickOpenIndex - 1, 0);
+        renderQuickOpen();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        const item = quickOpenFiltered[quickOpenIndex];
+        if (item) void openQuickItem(item);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeQuickOpen();
+      }
+    });
+  }
+
+  const quickOpenOverlay = document.getElementById('quickOpen');
+  if (quickOpenOverlay) {
+    quickOpenOverlay.addEventListener('click', (event) => {
+      if (event.target === quickOpenOverlay) closeQuickOpen();
+    });
+  }
+
+  const tabOverflowBtn = document.getElementById('tabOverflowBtn');
+  const tabOverflowMenu = document.getElementById('tabOverflowMenu');
+  window.addEventListener('resize', updateTabOverflow);
+  if (tabOverflowBtn && tabOverflowMenu) {
+    tabOverflowBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (tabOverflowMenu.hidden) {
+        renderTabOverflowMenu();
+        tabOverflowMenu.hidden = false;
+        tabOverflowBtn.classList.add('active');
+      } else {
+        tabOverflowMenu.hidden = true;
+        tabOverflowBtn.classList.remove('active');
+      }
+    });
+  }
+
+  const tabContextMenu = document.getElementById('tabContextMenu');
+  tabContextMenu?.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-tab-action]');
+    const id = tabContextTargetId;
+    hideTabContextMenu();
+    if (!item || !id) return;
+    const action = item.dataset.tabAction;
+    if (action === 'close') {
+      void closeTab(id);
+    } else if (action === 'close-others') {
+      void closeOtherTabs(id);
+    } else if (action === 'close-right') {
+      void closeTabsToRight(id);
+    } else if (action === 'copy-path') {
+      const tab = documentTabs.find((entry) => entry.id === id);
+      if (tab?.path && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(tab.path)
+          .then(() => updateStatus('已复制路径'))
+          .catch(() => updateStatus('复制路径失败'));
+      } else {
+        updateStatus('当前标签没有物理路径');
+      }
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('#tabOverflowBtn, #tabOverflowMenu')) {
+      tabOverflowMenu?.setAttribute('hidden', '');
+      tabOverflowBtn?.classList.remove('active');
+    }
+    if (!event.target.closest('#tabContextMenu')) hideTabContextMenu();
+  });
+  window.addEventListener('resize', updateTabOverflow);
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar')?.classList.add('collapsed');
+  }
+
+  document.addEventListener('selectionchange', () => {
+    const tab = getActiveTab();
+    if (tab && tab.kind === 'vditor') updateDocumentStatus();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+      event.preventDefault();
+      void openQuickOpen();
+    }
+  });
+
+  // 查找 / 替换
+  const findInput = document.getElementById('findInput');
+  const replaceInput = document.getElementById('replaceInput');
+  const findNextBtn = document.getElementById('findNext');
+  const findPrevBtn = document.getElementById('findPrev');
+  const findCloseBtn = document.getElementById('findClose');
+  const replaceOneBtn = document.getElementById('replaceOne');
+  const replaceAllBtn = document.getElementById('replaceAllBtn');
+  let findStatusTimer = null;
+  findInput?.addEventListener('input', () => {
+    clearTimeout(findStatusTimer);
+    findStatusTimer = setTimeout(updateFindStatus, 150);
+  });
+  findInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      findNextMatch(event.shiftKey);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+  replaceInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      replaceCurrentMatch();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+  findNextBtn?.addEventListener('click', () => findNextMatch(false));
+  findPrevBtn?.addEventListener('click', () => findNextMatch(true));
+  findCloseBtn?.addEventListener('click', closeFindBar);
+  replaceOneBtn?.addEventListener('click', replaceCurrentMatch);
+  replaceAllBtn?.addEventListener('click', replaceAllMatches);
+
+  // 新建标签页按钮
+  const tabNewBtn = document.getElementById('tabNewBtn');
+  if (tabNewBtn) {
+    tabNewBtn.addEventListener('click', () => {
+      void createNewTab();
+    });
+  }
+
+
   // 新建文件按钮
   const btnNew = document.getElementById('btnNew');
   if (btnNew) {
     btnNew.addEventListener('click', async () => {
       console.log('📄 新建文件');
-      await closeLargeFileViewer();
-      await exitLargeFileModeIfActive();
-      lastLoadedByteLen = 0;
-      currentFileIsMarkdown = true;   // 新建文档固定为 Markdown，SV 下应恢复右侧预览
-      if (editorInstance) {
-        editorInstance.setValue('# 新文档\n\n开始编辑...', true);
-        updateWordCount('# 新文档\n\n开始编辑...');
-        applyPreviewModeForCurrentFile();
-      }
-      currentFilePath = null;
-      document.getElementById('filePath').textContent = '未保存';
-      document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
-      updateStatus('已创建新文档 (未保存)');
+      await createNewTab();
     });
   }
 
@@ -1257,16 +3008,16 @@ function setupEventListeners() {
         const fileFilters = getSupportedFileFilters();
 
         const selected = await open({
-          multiple: false,
+          multiple: true,
           filters: fileFilters,
           defaultPath: currentFilePath ? await dirname(currentFilePath) : undefined
         });
 
-        if (selected) {
-          // 兼容Tauri API的不同返回值 (字符串 或 {path: ...})
-          const filePath = selected.path || selected;
-          // 统一入口（含大小守卫与引擎选择）
-          await loadFileIntoEditor(filePath);
+        const selectedPaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
+        for (const entry of selectedPaths) {
+          // 兼容 Tauri API 的不同返回值（字符串 或 { path }）
+          const filePath = entry?.path || entry;
+          if (filePath) await loadFileIntoEditor(filePath);
         }
       } catch (error) {
         console.error('❌ 打开文件失败:', error);
@@ -1324,62 +3075,8 @@ function setupEventListeners() {
   // 保存文件按钮
   const btnSave = document.getElementById('btnSave');
   if (btnSave) {
-    btnSave.addEventListener('click', async () => {
-      console.log('💾 保存文件');
-      if (logViewerActive) {
-        updateStatus('只读日志模式不支持保存');
-        return;
-      }
-      if (largeFileMode && !largeFileEditor) return;
-      if (!largeFileMode && !editorInstance) return;
-      const content = getEditorValue();
-
-      try {
-        if (currentFilePath) {
-          // 当前已有被打开的绝对路径，直接覆盖保存
-          await writeTextFile(currentFilePath, content);
-          updateStatus('已保存');
-        } else {
-          // 之前是由"新建文档"创建并未保存，或者是初次启动
-          const defaultFilename = await getDefaultSaveFilename(null, content);
-          const selectedPath = await save({
-            title: '保存新文档',
-            defaultPath: defaultFilename,
-            filters: getSupportedFileFilters()
-          });
-
-          if (selectedPath) {
-            await writeTextFile(selectedPath, content);
-            currentFilePath = selectedPath;
-            const fileName = await basename(selectedPath);
-            const dirPath = await dirname(selectedPath);
-
-            document.getElementById('filePath').textContent = currentFilePath;
-            updateStatus(`已保存至: ${fileName}`);
-
-            // 更新左侧列表
-            await populateFileList(dirPath, fileName);
-            startDirWatch(dirPath);
-          }
-        }
-      } catch (error) {
-        console.error('❌ 保存文件失败:', error);
-
-        // Web端兜底，触发浏览器下载
-        if (String(error).includes('__TAURI_IPC__') || String(error).includes('Tauri')) {
-          const blob = new Blob([content], { type: 'text/markdown' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = '未命名文档.md';
-          a.click();
-          URL.revokeObjectURL(url);
-          updateStatus('已通过浏览器下载保存');
-        } else {
-          updateStatus('保存出错');
-          alert(`保存文件失败: ${error}`);
-        }
-      }
+    btnSave.addEventListener('click', () => {
+      void saveActiveDocument();
     });
   }
 
@@ -1532,6 +3229,28 @@ function setupEventListeners() {
     btnTheme.addEventListener('click', toggleTheme);
   }
 
+  // 设置面板
+  document.getElementById('btnSettings')?.addEventListener('click', openSettingsDialog);
+  document.getElementById('settingsClose')?.addEventListener('click', closeSettingsDialog);
+  document.getElementById('settingsDialog')?.addEventListener('click', (event) => {
+    if (event.target.id === 'settingsDialog') closeSettingsDialog();
+  });
+  document.getElementById('settingAutosave')?.addEventListener('change', (event) => {
+    appSettings.autosave = event.target.checked;
+    saveAppSettings();
+    if (appSettings.autosave) scheduleAutosave();
+  });
+  document.getElementById('settingTheme')?.addEventListener('change', (event) => {
+    appSettings.theme = event.target.value;
+    saveAppSettings();
+    applyThemePreference(appSettings.theme);
+  });
+  document.getElementById('settingFontSize')?.addEventListener('change', (event) => {
+    appSettings.fontSize = Math.max(12, Math.min(22, Number(event.target.value) || 15));
+    saveAppSettings();
+    applyEditorFontSize();
+  });
+
   // 侧边栏切换按钮
   const btnToggleSidebar = document.getElementById('btnToggleSidebar');
   if (btnToggleSidebar) {
@@ -1677,29 +3396,81 @@ function initOutlineResizer() {
   });
 }
 
+function loadAppSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      appSettings = { ...appSettings, ...saved };
+    } else {
+      const legacyTheme = localStorage.getItem('markedit-theme');
+      if (legacyTheme === 'light' || legacyTheme === 'dark') appSettings.theme = legacyTheme;
+    }
+  } catch {
+    /* 使用默认设置 */
+  }
+  appSettings.autosave = appSettings.autosave !== false;
+  appSettings.theme = ['system', 'light', 'dark'].includes(appSettings.theme)
+    ? appSettings.theme
+    : 'system';
+  appSettings.fontSize = Math.max(12, Math.min(22, Number(appSettings.fontSize) || 15));
+}
+
+function saveAppSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(appSettings));
+  } catch {
+    /* 忽略配额错误 */
+  }
+}
+
+function applyEditorTheme(theme) {
+  if (editorInstance) {
+    editorInstance.setTheme(
+      theme === 'dark' ? 'dark' : 'classic',
+      theme === 'dark' ? 'dark' : 'light',
+      theme === 'dark' ? 'native' : 'github'
+    );
+  }
+  if (largeFileEditor) largeFileEditor.setTheme(theme === 'dark');
+}
+
+function applyThemePreference(theme) {
+  const resolved = theme === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : theme;
+  document.documentElement.setAttribute('data-theme', resolved);
+  applyEditorTheme(resolved);
+}
+
+function applyEditorFontSize() {
+  document.documentElement.style.setProperty('--editor-font-size', `${appSettings.fontSize}px`);
+}
+
+function openSettingsDialog() {
+  const dialog = document.getElementById('settingsDialog');
+  if (!dialog) return;
+  const autosave = document.getElementById('settingAutosave');
+  const theme = document.getElementById('settingTheme');
+  const fontSize = document.getElementById('settingFontSize');
+  if (autosave) autosave.checked = appSettings.autosave !== false;
+  if (theme) theme.value = appSettings.theme;
+  if (fontSize) fontSize.value = String(appSettings.fontSize);
+  dialog.hidden = false;
+}
+
+function closeSettingsDialog() {
+  const dialog = document.getElementById('settingsDialog');
+  if (dialog) dialog.hidden = true;
+}
+
 // 切换主题
 function toggleTheme() {
   const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
   const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-
-  document.documentElement.setAttribute('data-theme', newTheme);
+  appSettings.theme = newTheme;
+  saveAppSettings();
+  applyThemePreference(newTheme);
   localStorage.setItem('markedit-theme', newTheme);
-
-  // 更新编辑器主题
-  if (editorInstance) {
-    const editorTheme = newTheme === 'dark' ? 'dark' : 'classic';
-    const contentTheme = newTheme === 'dark' ? 'dark' : 'light';
-    const codeTheme = newTheme === 'dark' ? 'native' : 'github';
-    editorInstance.setTheme(editorTheme, contentTheme, codeTheme);
-  }
-
-  // 大文件编辑区主题同步
-  if (largeFileEditor) {
-    largeFileEditor.setTheme(newTheme === 'dark');
-  }
-
-  // 显隐交由 CSS 中的 [data-theme] 选择器自动控制
-
   updateStatus(`已切换到${newTheme === 'light' ? '浅色' : '深色'}主题`);
 }
 
@@ -1836,6 +3607,21 @@ if (import.meta.env.DEV) {
     exitLargeFileModeIfActive,
     getEditorValue,
     loadFileIntoEditor,
+    restoreSession,
+    persistSessionNow,
+    autosaveActiveTab,
+    setEditorValue: (value) => {
+      if (editorInstance) {
+        editorInstance.setValue(String(value));
+        markActiveTabDirty();
+      }
+    },
+    getSaveState: () => ({ saveInFlight, autosaveTimer: Boolean(autosaveTimer), restoringSession }),
+    getActiveTabInfo: () => {
+      const tab = getActiveTab();
+      return tab ? { id: tab.id, name: tab.name, path: tab.path, kind: tab.kind, dirty: tab.dirty, byteLen: tab.byteLen, contentLength: tab.content?.length } : null;
+    },
+    setupWindowControls,
     setCurrentFileIsMarkdown: (value) => {
       currentFileIsMarkdown = !!value;
       applyPreviewModeForCurrentFile();

@@ -15,7 +15,7 @@ import { EditorView, keymap, lineNumbers, drawSelection, dropCursor,
   highlightActiveLine, highlightSpecialChars, rectangularSelection, crosshairCursor } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { search, searchKeymap, highlightSelectionMatches, SearchQuery, setSearchQuery, findNext, findPrevious, replaceNext, replaceAll } from '@codemirror/search';
 import { syntaxHighlighting, defaultHighlightStyle, StreamLanguage } from '@codemirror/language';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { javascript } from '@codemirror/lang-javascript';
@@ -75,6 +75,7 @@ export class LargeFileEditor {
     this._language = 'markdown';
     this._isDark = false;
     this.onChange = null;
+    this.onCursorChange = null;
     this._themeCompartment = new Compartment();
     this._languageCompartment = new Compartment();
     this._hsmCompartment = new Compartment();   // 选中匹配高亮开关
@@ -108,6 +109,9 @@ export class LargeFileEditor {
       EditorView.updateListener.of((update) => {
         if (update.docChanged && this.onChange) {
           this.onChange(this.getValue());
+        }
+        if ((update.docChanged || update.selectionSet) && this.onCursorChange) {
+          this.onCursorChange();
         }
       }),
       localTheme
@@ -145,6 +149,66 @@ export class LargeFileEditor {
   /** 文档变更回调（由调用方做字数等轻量统计） */
   setOnChange(callback) {
     this.onChange = callback;
+  }
+
+  /** 光标移动回调（供状态栏显示行列） */
+  setOnCursorChange(callback) {
+    this.onCursorChange = callback;
+  }
+
+  getCursor() {
+    if (!this.view) return { line: 1, col: 1 };
+    const head = this.view.state.selection.main.head;
+    const line = this.view.state.doc.lineAt(head);
+    return { line: line.number, col: head - line.from + 1 };
+  }
+
+  getScrollTop() {
+    return this.view ? this.view.scrollDOM.scrollTop : 0;
+  }
+
+  setScrollTop(value) {
+    if (!this.view) return;
+    this.view.scrollDOM.scrollTop = Math.max(0, Number(value) || 0);
+  }
+
+  setCursor(line, col = 1) {
+    if (!this.view) return;
+    const targetLine = this.view.state.doc.line(
+      Math.max(1, Math.min(Number(line) || 1, this.view.state.doc.lines))
+    );
+    const offset = Math.max(0, Math.min((Number(col) || 1) - 1, targetLine.length));
+    this.view.dispatch({
+      selection: { anchor: targetLine.from + offset },
+      scrollIntoView: true
+    });
+  }
+
+  getState() {
+    return this.view ? this.view.state : null;
+  }
+
+  setState(state) {
+    if (!this.view || !state) return;
+    this.view.setState(state);
+  }
+
+  find(query, { backward = false, caseSensitive = false } = {}) {
+    if (!this.view || !query) return false;
+    const searchQuery = new SearchQuery({ search: query, caseSensitive });
+    this.view.dispatch({ effects: setSearchQuery.of(searchQuery) });
+    return (backward ? findPrevious : findNext)(this.view);
+  }
+
+  replace(query, replacement, { all = false, caseSensitive = false } = {}) {
+    if (!this.view || !query) return false;
+    const searchQuery = new SearchQuery({
+      search: query,
+      replace: replacement,
+      caseSensitive
+    });
+    this.view.dispatch({ effects: setSearchQuery.of(searchQuery) });
+    return (all ? replaceAll : replaceNext)(this.view);
   }
 
   show() {
@@ -187,6 +251,7 @@ export class LargeFileEditor {
         byteLen > HIGHLIGHT_MATCHES_DISABLE_THRESHOLD ? [] : highlightSelectionMatches()
       )
     });
+    if (this.onCursorChange) this.onCursorChange();
   }
 
   getValue() {

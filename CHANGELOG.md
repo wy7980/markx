@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- UI 第一阶段视觉现代化：新的 Design Tokens、扁平工具栏、侧栏工作区头部/选中态、移除侧栏底部大按钮、状态栏去重
+- 多标签页与文档状态模型：每个标签保存内容/脏标记/当前路径，切换不丢失未保存修改，支持新建/关闭/中键关闭
+- 快速打开面板（Ctrl/Cmd+P）：统一搜索已打开标签页与当前目录文件，支持键盘上下选择与回车打开
+- 状态栏真实文档信息：语言、换行符（LF/CRLF）、光标行列，Markdown 与代码文件均实时更新
+- Windows 自绘标题栏：无边框窗口、拖拽移动、双击最大化/还原、八向边缘缩放、最小化/最大化/关闭按钮；macOS 保留原生交通灯
+- 标题栏同步当前文档名与未保存标记
+- Windows 高 DPI 下自动把初始窗口压缩到任务栏之上的可用工作区
 - 新增 `large-file-engine` Rust crate：GB 级文件只读引擎（fd/read_at、稀疏索引、视口、搜索、轮转检测、块缓存）
 - Tauri 命令接入：`large_file_open` / `large_file_viewport` / `large_file_search` 等
 - 前端只读日志查看器：>20MB 文件自动进入，按比例分段虚拟滚动、行号跳转、搜索面板与结果列表
