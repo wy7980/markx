@@ -178,7 +178,7 @@ jobs:
 
   build-macos:
     name: 构建 macOS 版本
-    runs-on: macos-14
+    runs-on: macos-15
     needs: test
     permissions:
       contents: write
@@ -257,7 +257,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target aarch64-apple-darwin --bundles dmg --bundles app
+          args: --target aarch64-apple-darwin --bundles dmg,app
           tauriScript: pnpm tauri
 
       - name: 上传 DMG
