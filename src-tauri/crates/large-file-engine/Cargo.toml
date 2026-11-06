@@ -1,0 +1,29 @@
+[package]
+name = "large-file-engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Read-only engine for very large text and log files"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+parking_lot = "0.12"
+arc-swap = "1"
+memchr = "2"
+memmap2 = "0.9"
+lru = "0.12"
+regex = "1"
+blake3 = "1"
+file-id = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+serde_json = "1"
+
+[[bench]]
+name = "engine"
+harness = false
+

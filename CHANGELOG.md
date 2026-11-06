@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- 新增 `large-file-engine` Rust crate：GB 级文件只读引擎（fd/read_at、稀疏索引、视口、搜索、轮转检测、块缓存）
+- Tauri 命令接入：`large_file_open` / `large_file_viewport` / `large_file_search` 等
+- 前端只读日志查看器：>20MB 文件自动进入，按比例分段虚拟滚动、行号跳转、搜索面板与结果列表
+- 大文件监听：Tauri Channel 推送追加/截断/轮转事件；append 增量更新稀疏索引，轮转/截断提供重新加载入口
+- 搜索结果改为 Tauri Channel 流式推送（64 条/250ms 批量），保留分页轮询作为兼容兜底
+- 大文件打开前增加编码/二进制检测（UTF-16/非法 UTF-8/含 NUL），不支持时明确报错
+- `size()` 失败时改用 Rust `large_file_probe` 判断只读/可编辑，避免盲目全量读取
+- watch 注册失败时降级为 `large_file_poll` 轮询，不再丢失追加/轮转提示
+- 查看器增加 Find Next/Prev、精确命中高亮（matchLength）、`large_file_jump_to_offset`
+
 ### Changed
 - 编辑模式收敛为「即时渲染 / 分屏预览」两种，移除「所见即所得」入口（工具栏菜单与 Ctrl/Cmd+Alt+7 均不再生效）
 - 分屏预览下，纯文本 / 代码文件只显示源码，不再渲染无意义的 Markdown 预览

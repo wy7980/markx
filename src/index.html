@@ -146,6 +146,39 @@
             <button id="btnRichTextMode" class="large-file-banner__btn" type="button">用富文本打开</button>
           </div>
           <div id="largeFileEditor" class="large-file-editor-host" style="display: none;"></div>
+          <!-- 超大文件：只读日志查看器（Rust large-file-engine） -->
+          <div id="logViewer" class="log-viewer" hidden>
+            <div class="log-toolbar">
+              <button id="logSearchToggle" class="log-toolbar__btn" type="button" title="查找 (Ctrl+F)">查找</button>
+              <div class="log-jump">
+                <input id="logJumpInput" class="log-jump__input" type="number" min="1" placeholder="行号" />
+                <button id="logJumpBtn" class="log-toolbar__btn" type="button">跳转</button>
+                <button id="logReloadBtn" class="log-toolbar__btn" type="button" hidden>重新加载</button>
+              </div>
+              <span id="logViewerStatus" class="log-status">索引中…</span>
+            </div>
+            <div id="logSearchBar" class="log-search" hidden>
+              <input id="logSearchInput" class="log-search__input" type="text" placeholder="查找内容" />
+              <label class="log-search__opt"><input id="logSearchRegex" type="checkbox" /> 正则</label>
+              <label class="log-search__opt"><input id="logSearchCase" type="checkbox" /> 区分大小写</label>
+              <label class="log-search__opt"><input id="logSearchWord" type="checkbox" /> 整词</label>
+              <button id="logSearchStart" class="log-toolbar__btn" type="button">搜索</button>
+              <button id="logSearchPrev" class="log-toolbar__btn" type="button" disabled>上一个</button>
+              <button id="logSearchNext" class="log-toolbar__btn" type="button" disabled>下一个</button>
+              <button id="logSearchCancel" class="log-toolbar__btn" type="button" hidden>取消</button>
+              <span id="logSearchStatus" class="log-search__status"></span>
+            </div>
+            <div class="log-body">
+              <div id="logScroll" class="log-scroll" tabindex="0">
+                <div id="logSpacer" class="log-spacer"></div>
+                <div id="logRows" class="log-rows"></div>
+              </div>
+              <aside id="logResults" class="log-results" hidden>
+                <div class="log-results__title">搜索结果 <span id="logResultCount">0</span></div>
+                <div id="logResultList" class="log-results__list"></div>
+              </aside>
+            </div>
+          </div>
           <!-- 大文件模式大纲（正则提取标题，点击滚动到对应行） -->
           <div id="largeFileOutline" class="large-file-outline" hidden>
             <div class="large-file-outline__title">大纲</div>

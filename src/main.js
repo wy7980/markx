@@ -48,7 +48,7 @@ let lastFileSnapshot = new Set(); // 上次文件列表快照（文件名集合�
 
 // ── 大文件模式（双引擎架构，方案见 .project/specs/large-file-optimization-plan.md）──
 const LARGE_FILE_MODE_THRESHOLD = 512 * 1024;  // ≥ 此字节数进入大文件模式（跳过富文本渲染）
-const HUGE_FILE_LIMIT = 20 * 1024 * 1024;      // 硬上限：超过则拒绝打开
+const HUGE_FILE_LIMIT = 20 * 1024 * 1024;      // 超过则进入只读日志模式（Rust large-file-engine）
 const WORDCOUNT_SKIP_THRESHOLD = 512 * 1024;   // 字数统计门阔（UTF-8 字节）
 let largeFileMode = false;       // 当前是否使用 CodeMirror 文本引擎（大文件 / 非 Markdown 文件）
 let largeFileIsLarge = false;    // 文本引擎下当前文档是否超过大文件阈值（决定横幅与实时统计）
@@ -56,6 +56,8 @@ let largeFileEditor = null;      // CodeMirror 6 引擎实例（惰性创建）
 let lastLoadedByteLen = 0;       // 最近一次打开文件的字节数（实时统计门阔）
 let largeFileSession = 0;        // 大文件模式会话序号（一次性统计归属判定）
 let textWordCountTimer = null;   // 文本引擎下字数统计防抖定时器
+let logViewer = null;            // 超大文件只读查看器（惰性创建）
+let logViewerActive = false;     // 当前是否由只读查看器接管
 
 // 规范化来自系统事件/命令行的文件路径
 function normalizeIncomingFilePath(rawPath) {
@@ -285,10 +287,10 @@ async function openFileFromPath(filePath) {
 
 /**
  * 统一的文件加载入口（方案 v2 §4.1，所有打开路径收敛于此）。
- * 流程：size() 守卫（读取前）→ 读取文本（O(n)，非渲染）→ 按阈值选择引擎：
- *   - > HUGE_FILE_LIMIT：拒绝打开
- *   - ≥ LARGE_FILE_MODE_THRESHOLD：大文件模式（CodeMirror 6，跳过富文本渲染）
- *   - 否则：Vditor 引擎（IR 富文本；plain/code 文件切 SV 源码模式）
+ * 流程：size() 守卫（读取前）→ 按阈值选择引擎：
+ *   - > HUGE_FILE_LIMIT：Rust 只读日志查看器（不把全文读进 JS）
+ *   - ≥ LARGE_FILE_MODE_THRESHOLD：CodeMirror 6 纯文本编辑
+ *   - 否则：Vditor 引擎（Markdown 即时渲染；plain/code 已由 CM6 接管）
  * @returns {Promise<{text: string, bytes: number}|null>} 成功返回内容信息，失败/取消返回 null
  */
 async function loadFileIntoEditor(filePath) {
@@ -302,11 +304,29 @@ async function loadFileIntoEditor(filePath) {
       console.warn('⚠️ 获取文件大小失败，按常规路径打开:', sizeError);
     }
 
-    if (bytes !== null && bytes > HUGE_FILE_LIMIT) {
-      updateStatus(`文件过大，已取消打开: ${filePath}`);
-      alert(`文件过大（${(bytes / 1048576).toFixed(0)} MB），超出本应用处理能力，请使用系统文本编辑器打开。\n路径: ${filePath}`);
-      return null;
+    // 大小未知：先让 Rust 侧 metadata 判断模式，避免盲目 readTextFile 把超大文件读进 JS。
+    if (bytes === null) {
+      let probe;
+      try {
+        probe = await invoke('large_file_probe', { path: filePath });
+      } catch (error) {
+        console.warn('⚠️ 无法确认文件大小，已取消打开:', error);
+        updateStatus('无法确认文件大小，已取消打开');
+        alert(`无法确认文件大小，已取消打开：${error?.message || error}`);
+        return null;
+      }
+      bytes = probe.size;
+      if (probe.mode === 'readOnly') {
+        return await loadReadOnlyViewerFile(filePath, probe.size);
+      }
     }
+
+    // 超过编辑上限：不再拒绝，交给 Rust 只读引擎分块读取（不会把 1GB 读进 JS）
+    if (bytes !== null && bytes > HUGE_FILE_LIMIT) {
+      return await loadReadOnlyViewerFile(filePath, bytes);
+    }
+
+    await closeLargeFileViewer();
 
     const useLargeMode = bytes !== null && bytes >= LARGE_FILE_MODE_THRESHOLD;
     if (useLargeMode) {
@@ -401,6 +421,85 @@ async function ensureLargeFileEditor() {
   return largeFileEditor;
 }
 
+/** 打开只读日志查看器并更新文件信息/侧边栏。 */
+async function loadReadOnlyViewerFile(filePath, size) {
+  const fileName = await basename(filePath);
+  const fileInfo = getFileType(fileName);
+  currentFileIsMarkdown = isMarkdownFile(fileName);
+
+  await openLargeFileViewer(filePath);
+
+  currentFilePath = filePath;
+  lastLoadedByteLen = size;
+  updateFileInfoDisplay(fileName, fileInfo);
+  const dirPath = await dirname(filePath);
+  await populateFileList(dirPath, fileName);
+  startDirWatch(dirPath);
+  updateStatus(`只读日志模式: ${fileName} (${fileInfo.name})`);
+  return { text: '', bytes: size };
+}
+
+/**
+ * 打开超大文件（> 20MB）的只读日志查看器。
+ * 文件内容完全由 Rust 引擎按块读取，前端不持有全文。
+ */
+async function openLargeFileViewer(filePath) {
+  await exitLargeFileModeIfActive();
+
+  if (editorInstance) {
+    editorInstance.setValue('');
+    const vditorContainer = document.getElementById('vditor-container');
+    if (vditorContainer) vditorContainer.style.display = 'none';
+  }
+  removeFileTypeHint();
+  setLargeOutlineVisible(false);
+
+  try {
+    if (!logViewer) {
+      const { LargeFileViewer } = await import('./large-file-viewer.js');
+      logViewer = new LargeFileViewer(document.getElementById('logViewer'), {
+        onStatus: (text) => {
+          if (text) updateStatus(text);
+        }
+      });
+    }
+
+    await logViewer.open(filePath);
+    logViewerActive = true;
+    setWordCountDisplay('—', '—');
+  } catch (error) {
+    if (logViewer) {
+      try {
+        await logViewer.close();
+      } catch {
+        /* 忽略清理失败 */
+      }
+    }
+    const vditorContainer = document.getElementById('vditor-container');
+    if (vditorContainer) vditorContainer.style.display = '';
+    const message =
+      error && typeof error === 'object'
+        ? error.message || error.code || JSON.stringify(error)
+        : String(error);
+    throw new Error(message);
+  }
+}
+
+/** 关闭只读日志查看器并恢复 Vditor 容器。 */
+async function closeLargeFileViewer() {
+  if (!logViewerActive) return;
+  logViewerActive = false;
+  if (logViewer) {
+    try {
+      await logViewer.close();
+    } catch (error) {
+      console.warn('⚠️ 关闭日志查看器失败:', error);
+    }
+  }
+  const vditorContainer = document.getElementById('vditor-container');
+  if (vditorContainer) vditorContainer.style.display = '';
+}
+
 /**
  * 文本引擎入口（CodeMirror）：大文件、以及全部非 Markdown 文本 / 代码文件。
  * options.large 决定横幅、「用富文本打开」按钮、一次性字数统计等大文件专属行为。
@@ -478,6 +577,7 @@ function setLargeOutlineVisible(visible) {
 
 /** 值读取统一抽象：保存/导出路径的唯一分支点 */
 function getEditorValue() {
+  if (logViewerActive) return '';
   if (largeFileMode && largeFileEditor) return largeFileEditor.getValue();
   return editorInstance ? editorInstance.getValue() : '';
 }
@@ -1113,6 +1213,7 @@ function setupEventListeners() {
           if (currentFilePath === contextTargetFile.path) {
             currentFilePath = null;
             document.getElementById('filePath').textContent = '未保存';
+            await closeLargeFileViewer();
             await exitLargeFileModeIfActive();
             lastLoadedByteLen = 0;
             if (editorInstance) { editorInstance.setValue('', true); updateWordCount(''); }
@@ -1131,6 +1232,7 @@ function setupEventListeners() {
   if (btnNew) {
     btnNew.addEventListener('click', async () => {
       console.log('📄 新建文件');
+      await closeLargeFileViewer();
       await exitLargeFileModeIfActive();
       lastLoadedByteLen = 0;
       currentFileIsMarkdown = true;   // 新建文档固定为 Markdown，SV 下应恢复右侧预览
@@ -1224,6 +1326,10 @@ function setupEventListeners() {
   if (btnSave) {
     btnSave.addEventListener('click', async () => {
       console.log('💾 保存文件');
+      if (logViewerActive) {
+        updateStatus('只读日志模式不支持保存');
+        return;
+      }
       if (largeFileMode && !largeFileEditor) return;
       if (!largeFileMode && !editorInstance) return;
       const content = getEditorValue();
@@ -1302,6 +1408,10 @@ function setupEventListeners() {
   if (exportMd) {
     exportMd.addEventListener('click', async () => {
       exportMenu.style.display = 'none';
+      if (logViewerActive) {
+        updateStatus('只读日志模式不支持导出 Markdown');
+        return;
+      }
       if (!editorInstance) return;
       try {
         const defaultName = currentFilePath ? await basename(currentFilePath) : '未命名文档.md';
@@ -1333,6 +1443,10 @@ function setupEventListeners() {
   if (exportHtml) {
     exportHtml.addEventListener('click', async () => {
       exportMenu.style.display = 'none';
+      if (logViewerActive) {
+        updateStatus('只读日志模式不支持导出 HTML');
+        return;
+      }
       if (!editorInstance) return;
       let fullHtml = null;
       try {
@@ -1390,6 +1504,10 @@ function setupEventListeners() {
   if (exportPdf) {
     exportPdf.addEventListener('click', () => {
       exportMenu.style.display = 'none';
+      if (logViewerActive) {
+        updateStatus('只读日志模式不支持导出 PDF');
+        return;
+      }
       if (!editorInstance) return;
       if (largeFileMode) {
         updateStatus(currentFileIsMarkdown
@@ -1432,6 +1550,10 @@ function setupEventListeners() {
   if (btnOutline) {
     btnOutline.addEventListener('click', () => {
       console.log('📑 触发切换大纲');
+      if (logViewerActive) {
+        updateStatus('只读日志模式不支持大纲');
+        return;
+      }
       // 文本模式（CM6）：大纲只对 Markdown 有意义，vditor 的在隐藏容器内
       if (largeFileMode) {
         if (!currentFileIsMarkdown) {
@@ -1586,6 +1708,10 @@ function toggleTheme() {
 // 1. 支持传入已读文本 —— 打开文件路径直接传参，省一次 IR 模式下 ~1s/MB 的 getValue 全量转换
 // 2. 大文档门阔 —— 超过阈值跳过实时统计（显示 "—"），避免每次输入停顿触发 O(全文) 计算
 function updateWordCount(content) {
+  if (logViewerActive) {
+    setWordCountDisplay('—', '—');
+    return;
+  }
   if (!editorInstance && !largeFileMode) return;
 
   if (largeFileMode) {

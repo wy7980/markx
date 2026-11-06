@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 
 const SMALL_CONTENT = '# 小文件\n\n这是小文件内容 small-content-marker。';
 const LARGE_BYTES = 600 * 1024;   // > 512KB 阈值
-const HUGE_SIZE = 21 * 1024 * 1024; // > 20MB 硬上限
+const HUGE_SIZE = 21 * 1024 * 1024; // > 20MB：只读日志模式
 
 // 在页面加载前注入 Tauri IPC mock
 async function setupMock(page) {
@@ -45,6 +45,48 @@ async function setupMock(page) {
           return f.bytes.slice().buffer; // ArrayBuffer
         }
         if (cmd === 'plugin:fs|read_dir') return [];
+        if (cmd === 'large_file_open') {
+          return {
+            sessionId: '11111111-1111-4111-8111-111111111111',
+            path: args.path,
+            mode: 'readOnly',
+            size: hugeSize,
+            epoch: 1,
+            totalLines: null,
+            numbering: 'unknown',
+            tail: [
+              { number: null, offset: 0, text: 'tail line 1', truncated: false },
+              { number: null, offset: 12, text: 'tail line 2', truncated: false },
+              { number: null, offset: 24, text: 'tail line 3', truncated: false }
+            ]
+          };
+        }
+        if (cmd === 'large_file_index_status') {
+          return {
+            state: 'ready',
+            indexedBytes: hugeSize,
+            totalBytes: hugeSize,
+            totalLines: 1000,
+            epoch: 1,
+            error: null
+          };
+        }
+        if (cmd === 'large_file_viewport') {
+          const start = args.startLine;
+          return {
+            epoch: 1,
+            totalLines: 1000,
+            numbering: 'exact',
+            hasMore: true,
+            lines: Array.from({ length: args.count }, (_, index) => ({
+              number: start + index,
+              offset: (start + index) * 12,
+              text: 'line ' + (start + index),
+              truncated: false
+            }))
+          };
+        }
+        if (cmd === 'large_file_close') return true;
         if (cmd === 'get_initial_file') return null;
         if (cmd === 'get_current_dir') return '/mock';
         if (cmd === 'close_splashscreen') return null;
@@ -114,18 +156,24 @@ test.describe('大文件双引擎', () => {
     expect(state.notLargeResidue).toBe(true);  // 不是大文件残留
   });
 
-  test('超大文件（>20MB）被拒绝打开', async ({ page }) => {
-    let dialogMessage = '';
-    page.on('dialog', async (d) => {
-      dialogMessage = d.message();
-      await d.accept();
+  test('超大文件（>20MB）进入只读日志查看器', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const opened = await window._markeditTestHooks.loadFileIntoEditor('/mock/huge.md');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return {
+        opened: !!opened,
+        viewerHidden: document.getElementById('logViewer').hidden,
+        vditorHidden: document.getElementById('vditor-container').style.display === 'none',
+        rows: document.querySelectorAll('#logViewer .log-row').length,
+        status: document.getElementById('logViewerStatus').textContent
+      };
     });
-    const r = await page.evaluate(async () => {
-      const result = await window._markeditTestHooks.loadFileIntoEditor('/mock/huge.md');
-      return { opened: !!result };
-    });
-    expect(r.opened).toBe(false);
-    expect(dialogMessage).toContain('文件过大');
+
+    expect(result.opened).toBe(true);
+    expect(result.viewerHidden).toBe(false);
+    expect(result.vditorHidden).toBe(true);
+    expect(result.rows).toBeGreaterThan(0);
+    expect(result.status).toContain('只读日志模式');
     expect(await page.evaluate(() => document.getElementById('largeFileBanner').hidden)).toBe(true);
   });
 

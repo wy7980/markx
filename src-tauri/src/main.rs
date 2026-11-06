@@ -7,6 +7,8 @@ use tauri::{Manager, Emitter};
 use std::path::Path;
 use std::sync::Mutex;
 
+mod commands;
+
 // 全局状态存储通过命令行打开的文件路径
 struct AppState {
     initial_file: Mutex<Option<String>>,
@@ -173,10 +175,27 @@ fn main() {
             }
         }))
         .manage(app_state)
+        .manage(commands::large_file::EngineState::new())
         .invoke_handler(tauri::generate_handler![
             close_splashscreen,
             get_initial_file,
             get_current_dir,
+            commands::large_file::large_file_probe,
+            commands::large_file::large_file_open,
+            commands::large_file::large_file_close,
+            commands::large_file::large_file_poll,
+            commands::large_file::large_file_jump_to_offset,
+            commands::large_file::large_file_watch,
+            commands::large_file::large_file_unwatch,
+            commands::large_file::large_file_viewport,
+            commands::large_file::large_file_tail,
+            commands::large_file::large_file_index_status,
+            commands::large_file::large_file_info,
+            commands::large_file::large_file_search,
+            commands::large_file::large_file_search_stream,
+            commands::large_file::large_file_search_page,
+            commands::large_file::large_file_search_cancel,
+            commands::large_file::large_file_search_release,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

@@ -163,6 +163,21 @@ npm run test:coverage
 
 报告生成在 `coverage/` 目录。
 
+## 大文件引擎（Rust 后端）
+
+`src-tauri/crates/large-file-engine` 是面向 GB 级日志/文本的只读引擎，不依赖 Tauri 与前端框架：
+
+- 日志默认基于 fd 的 `read_at`，静态文件可选用 mmap；
+- 分段稀疏索引 + 后台构建，支持部分索引；
+- 按行视口读取，UTF-8/ASCII，超长行截断；
+- 字面量/正则搜索，支持取消与结果分页；
+- inode/file-id + 指纹的 append / truncate / copytruncate / rename 检测；
+- Tauri 命令：`large_file_open`、`large_file_viewport`、`large_file_search`、`large_file_jump_to_offset` 等（见 `src-tauri/src/commands/large_file.rs`）。
+- 打开前编码/二进制检测；`size()` 失败时用 `large_file_probe` 判定模式，避免未知大小全量读取。
+- watch 注册失败时降级为 `large_file_poll` 轮询；查看器支持 Find Next/Prev 与精确命中高亮。
+
+当前阶段已完成 Rust 引擎、Tauri 命令、前端只读日志查看器、Tauri Channel 文件监听（append 增量索引、truncate/rotate 提示重新加载）以及搜索结果 Channel 流式推送；后续可补索引持久化和真实桌面端验收。
+
 ## License
 
 MIT
