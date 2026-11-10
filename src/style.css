@@ -555,6 +555,16 @@ body {
   color: var(--text-primary);
 }
 
+.sidebar-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sidebar-icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
 .sidebar-icon-btn svg {
   width: 14px;
   height: 14px;

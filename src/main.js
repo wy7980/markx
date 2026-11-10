@@ -1948,6 +1948,22 @@ async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
   }
 }
 
+/** 侧栏「返回上级」按钮可用性：根目录为盘符/文件系统根时禁用。 */
+async function updateSidebarUpState() {
+  const btn = document.getElementById('btnUpFolder');
+  if (!btn) return;
+  if (!currentWatchedDir) {
+    btn.disabled = true;
+    return;
+  }
+  try {
+    const parent = await dirname(currentWatchedDir);
+    btn.disabled = !parent || parent === currentWatchedDir;
+  } catch {
+    btn.disabled = true;
+  }
+}
+
 async function populateFileList(dirPath, activeFileName) {
   const fileList = document.getElementById('fileList');
   const sidebarFolder = document.getElementById('sidebarFolder');
@@ -1957,6 +1973,7 @@ async function populateFileList(dirPath, activeFileName) {
   if (!dirPath) {
     fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件或文件夹以显示列表</div>';
     if (sidebarFolder) sidebarFolder.style.display = 'none';
+    void updateSidebarUpState();
     return;
   }
 
@@ -1972,8 +1989,10 @@ async function populateFileList(dirPath, activeFileName) {
     if (fileList.childElementCount === 0) {
       fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">此文件夹没有对应的文本文件</div>';
     }
+    await updateSidebarUpState();
   } catch (error) {
     console.error('❌ 读取目录失败:', error);
+    await updateSidebarUpState();
   }
 }
 
@@ -1989,6 +2008,7 @@ function stopDirWatch() {
   }
   currentWatchedDir = null;
   lastFileSnapshot = new Set();
+  void updateSidebarUpState();
 }
 
 /**
@@ -2006,6 +2026,7 @@ async function startDirWatch(dirPath) {
   if (dirWatchInterval !== null) clearInterval(dirWatchInterval);
 
   currentWatchedDir = dirPath;
+  void updateSidebarUpState();
 
   // 初始化快照
   try {
@@ -2660,6 +2681,23 @@ function setupGlobalShortcuts() {
 
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
+
+  // 返回上级目录
+  const btnUpFolder = document.getElementById('btnUpFolder');
+  btnUpFolder?.addEventListener('click', async () => {
+    if (!currentWatchedDir || btnUpFolder.disabled) return;
+    try {
+      const parent = await dirname(currentWatchedDir);
+      if (!parent || parent === currentWatchedDir) return;
+      currentWatchedDir = parent;
+      await populateFileList(parent, null);
+      startDirWatch(parent);
+      updateStatus(`已返回上级目录: ${await basename(parent) || parent}`);
+    } catch (error) {
+      console.error('返回上级目录失败:', error);
+      updateStatus(`无法返回上级目录: ${error}`);
+    }
+  });
 
   // 打开文件夹
   const btnOpenFolder = document.getElementById('btnOpenFolder');
