@@ -87,7 +87,7 @@
   --sidebar-width: 240px;
   --toolbar-height: 44px;
   --status-height: 26px;
-  --editor-font-size: 15px;
+  --editor-font-size: 13px;
   --ui-font-size: 13px;
 }
 
@@ -555,16 +555,6 @@ body {
   color: var(--text-primary);
 }
 
-.sidebar-icon-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.sidebar-icon-btn:disabled:hover {
-  background: transparent;
-  color: var(--text-muted);
-}
-
 .sidebar-icon-btn svg {
   width: 14px;
   height: 14px;
@@ -758,7 +748,7 @@ body {
 .vditor .vditor-reset,
 .cm-content,
 .cm-editor .cm-gutters {
-  font-size: var(--editor-font-size, 15px);
+  font-size: var(--editor-font-size, 13px);
 }
 
 /* ── 大文件模式（双引擎架构）────────────────────────────── */
@@ -852,7 +842,7 @@ body {
 
 .large-file-outline__title {
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: calc(var(--editor-font-size, 13px) - 1px);
   font-weight: 600;
   color: var(--text-secondary, #666);
   border-bottom: 1px solid var(--border-color, #e0e0e0);
@@ -866,7 +856,7 @@ body {
 
 .large-file-outline__item {
   padding: 4px 12px;
-  font-size: 13px;
+  font-size: var(--editor-font-size, 13px);
   color: var(--text-primary, #333);
   cursor: pointer;
   overflow: hidden;
@@ -907,6 +897,11 @@ body {
   border-left: 1px solid var(--border-color);
   background: var(--bg-primary);
   overflow-y: auto;
+  font-size: var(--editor-font-size, 13px);
+}
+
+.vditor .vditor-outline__title {
+  font-size: calc(var(--editor-font-size, 13px) - 1px);
 }
 
 /* 大纲拖动条 */

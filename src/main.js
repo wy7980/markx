@@ -785,6 +785,7 @@ function collectSessionSnapshot() {
     activeIndex: active ? documentTabs.indexOf(active) : 0,
     activePath: active?.path || null,
     activeName: active?.name || null,
+    sidebarRoot: currentWatchedDir,
     tabs
   };
 }
@@ -865,6 +866,27 @@ async function restoreSession() {
 
     if (documentTabs.length === 0) return false;
 
+    // 恢复侧栏根目录：优先用户上次选择的目录，否则取首个文件所在目录
+    if (data.sidebarRoot) {
+      try {
+        await populateFileList(data.sidebarRoot, null);
+        startDirWatch(data.sidebarRoot);
+      } catch (error) {
+        console.warn('恢复侧栏目录失败:', data.sidebarRoot, error);
+      }
+    } else {
+      const firstPathTab = documentTabs.find((tab) => tab.path);
+      if (firstPathTab) {
+        try {
+          const dir = await dirname(firstPathTab.path);
+          await populateFileList(dir, firstPathTab.name);
+          startDirWatch(dir);
+        } catch (error) {
+          console.warn('恢复侧栏目录失败:', dir, error);
+        }
+      }
+    }
+
     const byPath = data.activePath
       ? documentTabs.find((tab) => tab.path === data.activePath)
       : null;
@@ -925,8 +947,9 @@ async function applyTabToEditor(tab) {
     }
 
     if (tab.path) {
-      const dir = await dirname(tab.path);
-      if (dir !== currentWatchedDir) {
+      // 侧栏根目录保持用户选择（打开文件夹/首次打开），不随文件所在层级下钻
+      if (!currentWatchedDir) {
+        const dir = await dirname(tab.path);
         await populateFileList(dir, tab.name);
         startDirWatch(dir);
       } else {
@@ -1343,11 +1366,15 @@ async function loadFileIntoEditor(filePath) {
     currentFilePath = filePath;
     lastLoadedByteLen = byteLen;   // 成功打开后才提交门阔状态（失败路径不污染）
 
-    // 4. 界面与侧边栏
+    // 4. 界面与侧边栏（根目录未设置时才定位到文件所在目录，之后保持不变）
     updateFileInfoDisplay(fileName, fileInfo);
-    const dirPath = await dirname(filePath);
-    await populateFileList(dirPath, fileName);
-    startDirWatch(dirPath);
+    if (!currentWatchedDir) {
+      const dirPath = await dirname(filePath);
+      await populateFileList(dirPath, fileName);
+      startDirWatch(dirPath);
+    } else {
+      updateFileListActive(filePath);
+    }
 
     updateStatus(isLarge
       ? `大文件模式：${fileName}（${(byteLen / 1024).toFixed(0)} KB）`
@@ -1425,9 +1452,13 @@ async function loadReadOnlyViewerFile(filePath, size) {
   currentFilePath = filePath;
   lastLoadedByteLen = size;
   updateFileInfoDisplay(fileName, fileInfo);
-  const dirPath = await dirname(filePath);
-  await populateFileList(dirPath, fileName);
-  startDirWatch(dirPath);
+  if (!currentWatchedDir) {
+    const dirPath = await dirname(filePath);
+    await populateFileList(dirPath, fileName);
+    startDirWatch(dirPath);
+  } else {
+    updateFileListActive(filePath);
+  }
   updateDocumentStatus();
   rememberRecentFile(filePath);
   scheduleSessionPersist();
@@ -1937,7 +1968,6 @@ async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
         const result = await loadFileIntoEditor(filePath);
         if (result) {
           updateFileListActive(filePath);
-          currentWatchedDir = dirPath;
         }
       } catch (error) {
         console.error('❌ 读取文件失败:', error);
@@ -1945,22 +1975,6 @@ async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
       }
     });
     container.appendChild(el);
-  }
-}
-
-/** 侧栏「返回上级」按钮可用性：根目录为盘符/文件系统根时禁用。 */
-async function updateSidebarUpState() {
-  const btn = document.getElementById('btnUpFolder');
-  if (!btn) return;
-  if (!currentWatchedDir) {
-    btn.disabled = true;
-    return;
-  }
-  try {
-    const parent = await dirname(currentWatchedDir);
-    btn.disabled = !parent || parent === currentWatchedDir;
-  } catch {
-    btn.disabled = true;
   }
 }
 
@@ -1973,7 +1987,6 @@ async function populateFileList(dirPath, activeFileName) {
   if (!dirPath) {
     fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">请打开文件或文件夹以显示列表</div>';
     if (sidebarFolder) sidebarFolder.style.display = 'none';
-    void updateSidebarUpState();
     return;
   }
 
@@ -1989,10 +2002,8 @@ async function populateFileList(dirPath, activeFileName) {
     if (fileList.childElementCount === 0) {
       fileList.innerHTML = '<div style="padding: 15px; color: var(--text-secondary, #666); text-align: center; font-size: 13px;">此文件夹没有对应的文本文件</div>';
     }
-    await updateSidebarUpState();
   } catch (error) {
     console.error('❌ 读取目录失败:', error);
-    await updateSidebarUpState();
   }
 }
 
@@ -2008,7 +2019,6 @@ function stopDirWatch() {
   }
   currentWatchedDir = null;
   lastFileSnapshot = new Set();
-  void updateSidebarUpState();
 }
 
 /**
@@ -2026,7 +2036,6 @@ async function startDirWatch(dirPath) {
   if (dirWatchInterval !== null) clearInterval(dirWatchInterval);
 
   currentWatchedDir = dirPath;
-  void updateSidebarUpState();
 
   // 初始化快照
   try {
@@ -2313,7 +2322,7 @@ async function setupFileDrop() {
 
 const WINDOW_STATE_KEY = 'markedit-window-v1';
 const SETTINGS_KEY = 'markedit-settings-v1';
-let appSettings = { autosave: true, theme: 'system', fontSize: 15, uiFontSize: 13 };
+let appSettings = { autosave: true, theme: 'system', fontSize: 13, uiFontSize: 13 };
 let windowStateTimer = null;
 
 /** 记住并恢复窗口位置、大小与最大化状态。 */
@@ -2441,8 +2450,12 @@ async function saveActiveDocument({ forceDialog = false, silent = false } = {}) 
     renderTabs();
     updateDocumentStatus();
     if (!silent) updateStatus(`已保存至: ${fileName}`);
-    await populateFileList(dirPath, fileName);
-    startDirWatch(dirPath);
+    if (!currentWatchedDir) {
+      await populateFileList(dirPath, fileName);
+      startDirWatch(dirPath);
+    } else {
+      updateFileListActive(selectedPath);
+    }
     return true;
   } catch (error) {
     console.error('❌ 保存文件失败:', error);
@@ -2681,23 +2694,6 @@ function setupGlobalShortcuts() {
 
 function setupEventListeners() {
   console.log('🛠️ 设置事件监听器');
-
-  // 返回上级目录
-  const btnUpFolder = document.getElementById('btnUpFolder');
-  btnUpFolder?.addEventListener('click', async () => {
-    if (!currentWatchedDir || btnUpFolder.disabled) return;
-    try {
-      const parent = await dirname(currentWatchedDir);
-      if (!parent || parent === currentWatchedDir) return;
-      currentWatchedDir = parent;
-      await populateFileList(parent, null);
-      startDirWatch(parent);
-      updateStatus(`已返回上级目录: ${await basename(parent) || parent}`);
-    } catch (error) {
-      console.error('返回上级目录失败:', error);
-      updateStatus(`无法返回上级目录: ${error}`);
-    }
-  });
 
   // 打开文件夹
   const btnOpenFolder = document.getElementById('btnOpenFolder');
@@ -3284,12 +3280,12 @@ function setupEventListeners() {
     applyThemePreference(appSettings.theme);
   });
   document.getElementById('settingFontSize')?.addEventListener('change', (event) => {
-    appSettings.fontSize = Math.max(12, Math.min(22, Number(event.target.value) || 15));
+    appSettings.fontSize = Math.max(12, Math.min(22, Number(event.target.value) || 13));
     saveAppSettings();
     applyEditorFontSize();
   });
   document.getElementById('settingUiFontSize')?.addEventListener('change', (event) => {
-    appSettings.uiFontSize = Math.max(11, Math.min(16, Number(event.target.value) || 13));
+    appSettings.uiFontSize = Math.max(12, Math.min(18, Number(event.target.value) || 13));
     saveAppSettings();
     applyUiFontSize();
   });
@@ -3455,8 +3451,8 @@ function loadAppSettings() {
   appSettings.theme = ['system', 'light', 'dark'].includes(appSettings.theme)
     ? appSettings.theme
     : 'system';
-  appSettings.fontSize = Math.max(12, Math.min(22, Number(appSettings.fontSize) || 15));
-  appSettings.uiFontSize = Math.max(11, Math.min(16, Number(appSettings.uiFontSize) || 13));
+  appSettings.fontSize = Math.max(12, Math.min(22, Number(appSettings.fontSize) || 13));
+  appSettings.uiFontSize = Math.max(12, Math.min(18, Number(appSettings.uiFontSize) || 13));
 }
 
 function saveAppSettings() {
