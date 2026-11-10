@@ -1817,7 +1817,7 @@ function initializeApp() {
 
   loadAppSettings();
   applyThemePreference(appSettings.theme);
-  applyEditorFontSize();
+  applyFontSizes();
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (appSettings.theme === 'system') applyThemePreference('system');
   });
@@ -1837,7 +1837,7 @@ function initializeApp() {
   initVditor().then(async () => {
     console.log('🎉 编辑器初始化完成');
     applyThemePreference(appSettings.theme);
-    applyEditorFontSize();
+    applyFontSizes();
     updateStatus('应用已就绪');
 
     // 恢复上次会话；没有会话时创建默认未命名标签
@@ -2292,7 +2292,7 @@ async function setupFileDrop() {
 
 const WINDOW_STATE_KEY = 'markedit-window-v1';
 const SETTINGS_KEY = 'markedit-settings-v1';
-let appSettings = { autosave: true, theme: 'system', fontSize: 15 };
+let appSettings = { autosave: true, theme: 'system', fontSize: 15, uiFontSize: 13 };
 let windowStateTimer = null;
 
 /** 记住并恢复窗口位置、大小与最大化状态。 */
@@ -3250,6 +3250,11 @@ function setupEventListeners() {
     saveAppSettings();
     applyEditorFontSize();
   });
+  document.getElementById('settingUiFontSize')?.addEventListener('change', (event) => {
+    appSettings.uiFontSize = Math.max(11, Math.min(16, Number(event.target.value) || 13));
+    saveAppSettings();
+    applyUiFontSize();
+  });
 
   // 侧边栏切换按钮
   const btnToggleSidebar = document.getElementById('btnToggleSidebar');
@@ -3413,6 +3418,7 @@ function loadAppSettings() {
     ? appSettings.theme
     : 'system';
   appSettings.fontSize = Math.max(12, Math.min(22, Number(appSettings.fontSize) || 15));
+  appSettings.uiFontSize = Math.max(11, Math.min(16, Number(appSettings.uiFontSize) || 13));
 }
 
 function saveAppSettings() {
@@ -3446,15 +3452,26 @@ function applyEditorFontSize() {
   document.documentElement.style.setProperty('--editor-font-size', `${appSettings.fontSize}px`);
 }
 
+function applyUiFontSize() {
+  document.documentElement.style.setProperty('--ui-font-size', `${appSettings.uiFontSize}px`);
+}
+
+function applyFontSizes() {
+  applyEditorFontSize();
+  applyUiFontSize();
+}
+
 function openSettingsDialog() {
   const dialog = document.getElementById('settingsDialog');
   if (!dialog) return;
   const autosave = document.getElementById('settingAutosave');
   const theme = document.getElementById('settingTheme');
   const fontSize = document.getElementById('settingFontSize');
+  const uiFontSize = document.getElementById('settingUiFontSize');
   if (autosave) autosave.checked = appSettings.autosave !== false;
   if (theme) theme.value = appSettings.theme;
   if (fontSize) fontSize.value = String(appSettings.fontSize);
+  if (uiFontSize) uiFontSize.value = String(appSettings.uiFontSize);
   dialog.hidden = false;
 }
 
