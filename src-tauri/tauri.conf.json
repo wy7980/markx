@@ -202,7 +202,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true
+      "open": ".*"
     },
     "fs": {
       "requireLiteralLeadingDot": false
