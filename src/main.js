@@ -3,7 +3,7 @@
  * 解决构建问题，确保应用正常工作
  */
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { readTextFile, writeTextFile, readDir, rename, remove, size as fileSize } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, readDir, rename, remove, size as fileSize, mkdir, exists } from '@tauri-apps/plugin-fs';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
@@ -42,6 +42,7 @@ let currentFilePath = null;
 let currentFileIsMarkdown = true;   // 当前文档是否为 Markdown（决定编辑器引擎与 SV 预览面板）
 let editorInstance = null;
 let contextTargetFile = null; // 用于存储当前右击的目标文件
+let folderContextTarget = null; // 右键目标文件夹 { dir, childrenEl, depth }
 
 // 目录监视状态（轮询自动刷新）
 let currentWatchedDir = null;     // 当前被监视的目录路径
@@ -362,7 +363,25 @@ function syncTabGlobals(tab) {
   lastLoadedByteLen = tab.byteLen;
 }
 
+/** 编辑器为空时显示占位提示（Vditor 无内置 placeholder） */
+function updateEditorPlaceholder() {
+  const el = document.getElementById('editorPlaceholder');
+  if (!el) return;
+  if (largeFileMode || !editorInstance) {
+    el.hidden = true;
+    return;
+  }
+  let empty = false;
+  try {
+    empty = !(editorInstance.getValue() || '').trim();
+  } catch {
+    empty = false;
+  }
+  el.hidden = !empty;
+}
+
 function updateDocumentStatus() {
+  updateEditorPlaceholder();
   const tab = getActiveTab();
   const language = document.getElementById('statusLanguage');
   const encoding = document.getElementById('statusEncoding');
@@ -645,7 +664,7 @@ function dropPristineUntitledTab() {
 
 function ensureInitialTab() {
   if (documentTabs.length > 0) return;
-  const content = editorInstance ? editorInstance.getValue() : '';
+  const content = '';
   const tab = createTabRecord({
     name: '未命名',
     fileInfo: getFileType('未命名.md'),
@@ -984,7 +1003,7 @@ async function activateTab(id) {
 }
 
 async function createNewTab() {
-  const content = '# 新文档\n\n开始编辑...';
+  const content = '';
   const tab = createTabRecord({
     name: '未命名',
     fileInfo: getFileType('未命名.md'),
@@ -1804,17 +1823,41 @@ document.addEventListener('contextmenu', (e) => {
 });
 
 // 监听全局点击以隐藏右键菜单
-document.addEventListener('click', (e) => {
+document.addEventListener('click', () => {
   const menu = document.getElementById('contextMenu');
   if (menu && menu.style.display === 'block') {
     menu.style.display = 'none';
   }
+  const folderMenu = document.getElementById('folderContextMenu');
+  if (folderMenu && folderMenu.style.display === 'block') {
+    folderMenu.style.display = 'none';
+  }
 });
+
+function showFolderContextMenu(x, y, dirPath, childrenEl, depth) {
+  const menu = document.getElementById('folderContextMenu');
+  if (!menu) return;
+
+  folderContextTarget = { dir: dirPath, childrenEl, depth };
+  const fileMenu = document.getElementById('contextMenu');
+  if (fileMenu) fileMenu.style.display = 'none';
+  menu.style.display = 'block';
+
+  const rect = menu.getBoundingClientRect();
+  let px = x;
+  let py = y;
+  if (x + rect.width > window.innerWidth) px = window.innerWidth - rect.width;
+  if (y + rect.height > window.innerHeight) py = window.innerHeight - rect.height;
+  menu.style.left = `${px}px`;
+  menu.style.top = `${py}px`;
+}
 
 function showContextMenu(x, y, path, name) {
   const menu = document.getElementById('contextMenu');
   if (!menu) return;
 
+  const folderMenu = document.getElementById('folderContextMenu');
+  if (folderMenu) folderMenu.style.display = 'none';
   contextTargetFile = { path, name };
   console.log('🔍 showContextMenu: 设置 contextTargetFile =', { path, name });
   menu.style.display = 'block';
@@ -1934,6 +1977,12 @@ async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
         await renderFileTree(childPath, children, activeFileName, depth + 1);
       }
     });
+    folder.addEventListener('contextmenu', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const childPath = await join(dirPath, directory.name);
+      showFolderContextMenu(e.clientX, e.clientY, childPath, children, depth);
+    });
     container.append(folder, children);
   }
 
@@ -1976,6 +2025,29 @@ async function renderFileTree(dirPath, container, activeFileName, depth = 0) {
     });
     container.appendChild(el);
   }
+}
+
+function isValidEntryName(name) {
+  if (!name || name === '.' || name === '..') return false;
+  return !/[\\/:*?"<>|]/.test(name);
+}
+
+/** 在右键目标文件夹下刷新子节点；根目录则整树刷新并同步监视快照。 */
+async function refreshFolderChildren(target) {
+  if (!target?.dir) return;
+  if (target.dir === currentWatchedDir) {
+    try {
+      const entries = await readDir(currentWatchedDir);
+      lastFileSnapshot = new Set(entries.filter(e => !e.isDirectory).map(e => e.name));
+    } catch { /* 忽略 */ }
+    await populateFileList(currentWatchedDir, currentFilePath ? await basename(currentFilePath) : null);
+    return;
+  }
+  if (!target.childrenEl || target.childrenEl.dataset.loaded !== '1') return;
+  const activeName = currentFilePath ? await basename(currentFilePath) : null;
+  const activeInDir = currentFilePath ? (await dirname(currentFilePath)) === target.dir : false;
+  target.childrenEl.innerHTML = '';
+  await renderFileTree(target.dir, target.childrenEl, activeInDir ? activeName : null, target.depth + 1);
 }
 
 async function populateFileList(dirPath, activeFileName) {
@@ -2087,15 +2159,7 @@ async function startDirWatch(dirPath) {
 // 初始化Vditor编辑器
 function initVditor() {
   return new Promise((resolve) => {
-    const defaultContent = `# 欢迎使用 MarkEdit
-
-这是一个轻量级的Markdown编辑器。
-
-## 功能
-- 三种编辑模式：源码、阅读、所见即所得
-- 大纲导航功能
-- 文件操作：新建、打开、保存
-- 主题切换：浅色/深色模式`;
+    const defaultContent = '';
 
     editorInstance = new Vditor('vditor-container', {
       height: '100%',
@@ -2126,9 +2190,10 @@ function initVditor() {
       },
       input: (() => {
         let _timer = null;
-        return () => {
-          markActiveTabDirty();
-          clearTimeout(_timer);
+    return () => {
+      markActiveTabDirty();
+      updateEditorPlaceholder();
+      clearTimeout(_timer);
           _timer = setTimeout(() => {
             // 大文档门阔：跳过实时统计（O(全文) 的 getValue + 正则流水线）
             if (largeFileMode || lastLoadedByteLen >= LARGE_FILE_MODE_THRESHOLD) return;
@@ -2141,6 +2206,7 @@ function initVditor() {
         disableWysiwygMode();
         bindPreviewModeToModeSwitch();
         updateWordCount();
+        updateEditorPlaceholder();
         // 初始标签在会话恢复后再创建；此处编辑器已带默认内容。
         // Vditor 渲染完成后才能找到 .vditor-outline，在此时初始化拖动条
         initOutlineResizer();
@@ -2741,6 +2807,62 @@ function setupEventListeners() {
   const menuCopyPath = document.getElementById('menuCopyPath');
   const menuReveal = document.getElementById('menuReveal');
   const menuDelete = document.getElementById('menuDelete');
+
+  // 文件夹右键菜单：在目标文件夹下新建文件 / 子文件夹
+  const folderMenu = document.getElementById('folderContextMenu');
+  document.getElementById('menuFolderNewFile')?.addEventListener('click', async () => {
+    if (!folderContextTarget) return;
+    if (folderMenu) folderMenu.style.display = 'none';
+    const name = (prompt(`在“${await basename(folderContextTarget.dir) || folderContextTarget.dir}”中新建文件，输入文件名（含扩展名）:`, '未命名.md') || '').trim();
+    if (!name) return;
+    if (!isValidEntryName(name)) {
+      alert('文件名不能为空，且不能包含 \\ / : * ? " < > | 字符');
+      return;
+    }
+    try {
+      const fullPath = await join(folderContextTarget.dir, name);
+      if (await exists(fullPath)) {
+        alert(`文件已存在: ${name}`);
+        return;
+      }
+      await writeTextFile(fullPath, '');
+      updateStatus(`已创建文件: ${name}`);
+      await refreshFolderChildren(folderContextTarget);
+      await loadFileIntoEditor(fullPath);
+    } catch (e) {
+      alert('新建文件失败: ' + e);
+    }
+  });
+  document.getElementById('menuFolderNewSubfolder')?.addEventListener('click', async () => {
+    if (!folderContextTarget) return;
+    if (folderMenu) folderMenu.style.display = 'none';
+    const name = (prompt(`在“${await basename(folderContextTarget.dir) || folderContextTarget.dir}”中新建子文件夹，输入名称:`, '新建文件夹') || '').trim();
+    if (!name) return;
+    if (!isValidEntryName(name)) {
+      alert('文件夹名不能为空，且不能包含 \\ / : * ? " < > | 字符');
+      return;
+    }
+    try {
+      const fullPath = await join(folderContextTarget.dir, name);
+      if (await exists(fullPath)) {
+        alert(`文件夹已存在: ${name}`);
+        return;
+      }
+      await mkdir(fullPath);
+      updateStatus(`已创建文件夹: ${name}`);
+      await refreshFolderChildren(folderContextTarget);
+    } catch (e) {
+      alert('新建子文件夹失败: ' + e);
+    }
+  });
+
+  // 右键文件列表空白处：在当前根目录新建文件/子文件夹
+  document.getElementById('fileList')?.addEventListener('contextmenu', async (e) => {
+    if (e.target.closest('.file-item, .file-tree-folder')) return;
+    if (!currentWatchedDir) return;
+    e.preventDefault();
+    showFolderContextMenu(e.clientX, e.clientY, currentWatchedDir, document.getElementById('fileList'), 0);
+  });
 
   if (menuRename) {
     menuRename.addEventListener('click', async () => {

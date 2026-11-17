@@ -204,6 +204,10 @@
       <!-- Editor Container -->
       <div class="editor-container">
         <div class="editor-wrapper">
+          <div id="editorPlaceholder" class="editor-placeholder" hidden>
+            <div class="editor-placeholder__title">开始编写 Markdown…</div>
+            <div class="editor-placeholder__hint">Ctrl/Cmd+P 快速打开 · Ctrl/Cmd+S 保存 · 拖入文件直接打开</div>
+          </div>
           <div id="vditor-container"></div>
           <!-- 大文件模式：横幅 + 轻量编辑区（默认隐藏，由 main.js 控制显隐） -->
           <div id="largeFileBanner" class="large-file-banner" hidden>
@@ -374,6 +378,18 @@
         <input id="settingUiFontSize" type="number" min="12" max="18" step="1" />
       </label>
       <div class="settings-card__hint">框架字号影响侧栏、工具栏、状态栏、标签页、快速打开等界面；编辑字号影响 Markdown 编辑区、预览区和代码编辑器。自动保存仅对已保存到磁盘的文件生效；未命名文档会保留在当前会话中。</div>
+    </div>
+  </div>
+
+  <!-- Folder context menu -->
+  <div id="folderContextMenu" class="context-menu" style="display: none;">
+    <div class="menu-item" id="menuFolderNewFile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+      在此文件夹新建文件
+    </div>
+    <div class="menu-item" id="menuFolderNewSubfolder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+      在此文件夹新建子文件夹
     </div>
   </div>
 

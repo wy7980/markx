@@ -12,7 +12,7 @@
  * 由 main.js 的 ensureLargeFileEditor() 动态 import（避免 CM6 进入首屏 bundle）。
  */
 import { EditorView, keymap, lineNumbers, drawSelection, dropCursor,
-  highlightActiveLine, highlightSpecialChars, rectangularSelection, crosshairCursor } from '@codemirror/view';
+  highlightActiveLine, highlightSpecialChars, rectangularSelection, crosshairCursor, placeholder } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { search, searchKeymap, highlightSelectionMatches, SearchQuery, setSearchQuery, findNext, findPrevious, replaceNext, replaceAll } from '@codemirror/search';
@@ -96,6 +96,7 @@ export class LargeFileEditor {
     this._baseExtensions = [
       lineNumbers(),
       highlightSpecialChars(),
+      placeholder('输入内容…'),
       history(),
       drawSelection(),
       dropCursor(),

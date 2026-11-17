@@ -743,6 +743,33 @@ body {
   width: 100%;
 }
 
+.editor-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 72px;
+  pointer-events: none;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.editor-placeholder[hidden] {
+  display: none;
+}
+
+.editor-placeholder__title {
+  font-size: var(--editor-font-size, 13px);
+}
+
+.editor-placeholder__hint {
+  margin-top: 8px;
+  font-size: calc(var(--editor-font-size, 13px) - 2px);
+  opacity: 0.85;
+}
+
 /* 提高优先级：Vditor 自带 .vditor-reset { font-size:16px } 会覆盖同名单类规则；
    .vditor 是所有模式（IR/SV/预览）下 .vditor-reset 的公共祖先，两段类名必胜单类 */
 .vditor .vditor-reset,
